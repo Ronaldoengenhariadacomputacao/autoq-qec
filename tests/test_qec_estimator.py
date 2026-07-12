@@ -2,10 +2,9 @@
 Testes reais do QEC Estimator — verificam física, não só aritmética.
 Cada teste falha se o modelo produzir resultado fisicamente incorreto.
 """
-import math, sys, unittest
-sys.path.insert(0, '/home/claude/autoq_v2')
+import math, unittest
 
-from qec_estimator import (
+from autoq_qec.qec_estimator import (
     _surface_code_model, _bacon_shor_model, _steane_model,
     extract_circuit_profile, estimate, compare,
     HardwareProfile, CircuitProfile
