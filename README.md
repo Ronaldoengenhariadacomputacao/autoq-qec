@@ -4,7 +4,7 @@
 
 **Multi-code fault-tolerant quantum error correction estimator for arbitrary Qiskit circuits.**
 
-Given any Qiskit circuit and a set of hardware profiles, AutoQ QEC returns a ranked comparison of QEC codes (Surface Code, Bacon-Shor, Steane [[7,1,3]]) with physically grounded resource estimates: physical qubit count, execution time, and circuit fidelity.
+Given any Qiskit circuit and a set of hardware profiles, AutoQ QEC returns a ranked comparison of QEC codes (Surface Code, Floquet Code, Bacon-Shor, Steane [[7,1,3]]) with physically grounded resource estimates: physical qubit count, execution time, and circuit fidelity.
 
 ## What this does that nothing else does
 
@@ -43,7 +43,10 @@ hardwares = [
 
 # One call — returns all codes × all hardwares
 result = compare(circuit, hardwares, fidelity_target=0.99)
-recommendations = rank(result)
+
+# Pass hardware_calibrations to exclude combinations that violate T1
+# (t_circuit >= 0.5×T1) — matches by name or by (t_gate_ns, p_phys)
+recommendations = rank(result, hardware_calibrations=HARDWARE_PROFILES)
 
 for r in recommendations[:3]:
     print(f"#{r.rank} {r.hardware} + {r.code}: "
@@ -67,16 +70,30 @@ sim = noise_model_from_ibm("ibm_brisbane", token="YOUR_IBM_TOKEN")
 
 | Code | Model | Reference |
 |---|---|---|
-| Surface Code | $p_L \approx A(p/p_{th})^{(d+1)/2}$, $q=2d^2-1$ | Fowler et al., PRA 86, 032324 (2012) |
+| Surface Code | $p_L \approx A(p/p_{th})^{(d+1)/2}$, $q=2d^2-1$, overhead $=d^3$ | Fowler et al., PRA 86, 032324 (2012) |
+| Floquet Code | $p_L \approx 0.07(p/p_{th})^{(d+1)/2}$, $q=4d^2+8(d-1)$, overhead $=\lfloor d/2\rfloor$ | Gidney & Fowler, arXiv:2202.11829 |
 | Bacon-Shor | $p_L \approx (p/p_{th})^d$, $q=d^2$ | Aliferis & Cross (2007) |
 | Steane [[7,1,3]] | $p_L \approx 21p^2$, $q=13$ | Steane, PRL 77, 793 (1996) |
 
 Thresholds are enforced: `p ≥ p_th` raises `ValueError` — no silent wrong results.
 
+## Algorithm Estimator
+
+Order-of-magnitude T-count estimates for known algorithms, without building the full circuit:
+
+```python
+from autoq_qec import AlgorithmEstimator
+
+est = AlgorithmEstimator.shor(2048)
+print(est.t_count_estimate, est.t_count_uncertainty)  # ±5x — build the real circuit for precise numbers
+```
+
+Covers `shor`, `grover`, `qft`, `vqe`. These are rough estimates (±2×–±10× depending on the algorithm) — use `extract_circuit_profile()` on a real circuit whenever possible.
+
 ## Test
 
 ```bash
-pytest tests/ -v   # 22 tests, all verify physics not arithmetic
+pytest tests/ -v   # 47 tests, all verify physics not arithmetic
 ```
 
 ## What the tests check (unlike most QEC tools)
