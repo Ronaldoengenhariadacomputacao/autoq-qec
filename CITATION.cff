@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "AutoQ QEC Estimator"
+version: 0.1.0
+date-released: 2026-07-12
+url: "https://github.com/Ronaldoengenhariadacomputacao/autoq-qec"
+license: MIT
+authors:
+  - family-names: Rodrigues
+    given-names: Ronaldo
+    orcid: "https://orcid.org/0009-0006-7449-1190"
+    email: Ronaldoengenhariadacomputacao@hotmail.com

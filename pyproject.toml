@@ -35,6 +35,7 @@ dev = ["pytest>=7", "pytest-cov"]
 [project.urls]
 Repository = "https://github.com/Ronaldoengenhariadacomputacao/autoq-qec"
 Issues = "https://github.com/Ronaldoengenhariadacomputacao/autoq-qec/issues"
+ORCID = "https://orcid.org/0009-0006-7449-1190"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

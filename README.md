@@ -85,3 +85,7 @@ pytest tests/ -v   # 22 tests, all verify physics not arithmetic
 - Noisier hardware requires larger `d` (monotonicity)
 - Circuit with 0 gates raises `ValueError` (destroyed by transpiler)
 - Fidelity scales correctly with `t_gate`
+
+## Author
+
+Ronaldo Rodrigues — ORCID: [0009-0006-7449-1190](https://orcid.org/0009-0006-7449-1190)
