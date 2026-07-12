@@ -99,7 +99,47 @@ def _steane_model(p_phys: float, p_L_target: float,
         )
     return 3, 13, 6, p_L  # 7 data + 6 ancilla, 6 síndrome por ciclo
 
+
+def _floquet_code_model(p_phys: float, p_L_target: float,
+                        p_th: float = 0.01, A: float = 0.07):
+    """
+    Floquet Code planar (4.8.8) — Gidney & Fowler, arXiv:2202.11829
+    Vantagem vs Surface Code: overhead de tempo menor (d//2 vs d³ rodadas).
+    Custo: ~2× mais qubits por lógico (4d²+8(d-1) vs 2d²-1).
+    """
+    if p_phys >= p_th:
+        raise ValueError(f"p_phys={p_phys:.4f} ≥ threshold_Floquet={p_th}: não converge")
+    ratio = math.log(p_L_target / A) / math.log(p_phys / p_th)
+    d = max(3, math.ceil(2 * ratio - 1 + 1e-9))
+    if d % 2 == 0:
+        d += 1
+    p_L = A * (p_phys / p_th) ** ((d + 1) / 2)
+    if p_L > p_L_target * (1 + 1e-9):
+        d += 2
+        p_L = A * (p_phys / p_th) ** ((d + 1) / 2)
+    q_per_logical = 4 * d**2 + 8 * (d - 1)
+    gate_overhead = d // 2
+    return d, q_per_logical, gate_overhead, p_L
+
 # ── Extrator de perfil de circuito ───────────────────────────────────────────
+
+def _count_t_gates(circuit) -> int:
+    """
+    Conta T e T† gates após decomposição na base Clifford+T.
+    Portas Clifford (H, S, CX) têm custo zero em QEC fault-tolerant.
+    optimization_level=2 simplifica ângulos redundantes antes da contagem
+    (ex.: T·T·T otimiza para S·T — 1 T-gate real, não 3).
+    """
+    from qiskit import transpile
+    t_basis = transpile(
+        circuit,
+        basis_gates=['t', 'tdg', 's', 'sdg', 'h', 'x', 'y', 'z', 'cx'],
+        optimization_level=2,
+        seed_transpiler=42
+    )
+    ops = t_basis.count_ops()
+    return ops.get('t', 0) + ops.get('tdg', 0)
+
 
 def extract_circuit_profile(circuit) -> CircuitProfile:
     """
@@ -122,11 +162,9 @@ def extract_circuit_profile(circuit) -> CircuitProfile:
     n_physical = sum(ops_phys.values())
     depth_phys = phys.depth()
 
-    # T-gates: U com θ=π/4 (T) ou θ=-π/4 (T†) — aproximação via gate 'u'
-    # Na base CX+U, portas T aparecem como U(π/4,0,0) ou similares
-    # Aqui usamos T-count = n_physical (upper bound conservador para estimativa)
-    # Em produção: usar PyZX ou t_par para T-count exato
-    t_count = ops_phys.get('u', 0)  # cada U pode ser T ou Clifford
+    # T-gates: contagem exata via decomposição Clifford+T (ver _count_t_gates).
+    # Portas Clifford (H, S, CX) têm custo zero em QEC fault-tolerant.
+    t_count = _count_t_gates(circuit)
     cx_count = ops_phys.get('cx', 0)
 
     return CircuitProfile(
@@ -167,9 +205,11 @@ def estimate(circuit_profile: CircuitProfile,
     try:
         d, q_per_L, cycles, p_L = _surface_code_model(p, p_L_target)
         total_q = q_per_L * n_L
-        # Portas físicas: cada porta lógica → cycles rodadas de síndrome
-        # cada rodada: ~d² medições de estabilizador (d² CX por ciclo)
-        total_phys_gates = N * cycles * d  # gates_lógicas × ciclos × CX_por_ciclo
+        # cycles = d rodadas de síndrome por porta lógica (Fowler et al. PRA 86,
+        # 032324, Sec. IV). Cada rodada tem d² medições de estabilizador (CX por
+        # ciclo). Overhead total por porta lógica: d rodadas × d² medições = d³.
+        gate_overhead = cycles * d**2  # = d³
+        total_phys_gates = N * gate_overhead
         time_us = total_phys_gates * t_ns / 1000
         fid = (1 - p_L) ** N
         results.append(CodeResult(
@@ -177,7 +217,7 @@ def estimate(circuit_profile: CircuitProfile,
             distance=d,
             qubits_per_logical=q_per_L,
             total_physical_qubits=total_q,
-            gate_overhead_per_logical=cycles * d,
+            gate_overhead_per_logical=gate_overhead,
             total_physical_gates=total_phys_gates,
             execution_time_us=time_us,
             p_logical_achieved=p_L,
@@ -252,6 +292,35 @@ def estimate(circuit_profile: CircuitProfile,
             feasible=False, reason=str(e),
         ))
 
+    # ── Floquet Code ──────────────────────────────────────────────────────────
+    try:
+        d, q_per_L, cycles, p_L = _floquet_code_model(p, p_L_target)
+        total_q = q_per_L * n_L
+        total_phys_gates = N * cycles
+        time_us = total_phys_gates * t_ns / 1000
+        fid = (1 - p_L) ** N
+        results.append(CodeResult(
+            code_name="Floquet Code",
+            distance=d,
+            qubits_per_logical=q_per_L,
+            total_physical_qubits=total_q,
+            gate_overhead_per_logical=cycles,
+            total_physical_gates=total_phys_gates,
+            execution_time_us=time_us,
+            p_logical_achieved=p_L,
+            fidelity_circuit=fid,
+            feasible=True,
+            reason=f"d={d} (4.8.8 planar), p_L={p_L:.2e}",
+        ))
+    except ValueError as e:
+        results.append(CodeResult(
+            code_name="Floquet Code", distance=None, qubits_per_logical=None,
+            total_physical_qubits=None, gate_overhead_per_logical=None,
+            total_physical_gates=None, execution_time_us=None,
+            p_logical_achieved=None, fidelity_circuit=None,
+            feasible=False, reason=str(e),
+        ))
+
     return results
 
 
@@ -262,7 +331,8 @@ def compare(circuit, hardware_list: list[HardwareProfile],
     devolve dicionário hardware_name → [CodeResult].
     """
     profile = extract_circuit_profile(circuit)
-    output = {"circuit_profile": profile, "results": {}}
+    output = {"circuit_profile": profile, "results": {}, "hardware_profiles": {}}
     for hw in hardware_list:
         output["results"][hw.name] = estimate(profile, hw, fidelity_target)
+        output["hardware_profiles"][hw.name] = hw
     return output

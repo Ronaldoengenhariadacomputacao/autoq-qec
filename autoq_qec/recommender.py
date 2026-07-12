@@ -2,6 +2,7 @@
 AutoQ Recommender — rankeamento automático de código+hardware
 para um dado circuito e alvo de fidelidade.
 """
+import math
 from dataclasses import dataclass
 from typing import Optional
 from .qec_estimator import CodeResult, CircuitProfile
@@ -17,7 +18,28 @@ class Recommendation:
     score: float          # menor = melhor (normalizado)
     bottleneck: str       # o que domina o custo
 
+def _find_calibration(hw_name: str, hw_t_gate_ns: float, hw_p_phys: float,
+                       calibrations: dict):
+    """
+    Localiza a CalibratedHardware correspondente a um HardwareProfile.
+    HardwareProfile.name é escolhido livremente pelo usuário e não tem
+    relação garantida com as chaves de `calibrations` (ex.: HARDWARE_PROFILES
+    usa "IBM_Eagle_r3", mas um usuário pode nomear seu HardwareProfile
+    "IBM_Eagle"). Por isso, primeiro tenta casar por nome; se falhar, casa
+    pelas características numéricas (t_gate_ns e p_phys), que é como
+    HardwareProfile costuma ser derivado de uma CalibratedHardware na prática.
+    """
+    if hw_name in calibrations:
+        return calibrations[hw_name]
+    for cal in calibrations.values():
+        if (math.isclose(cal.t_2q_ns, hw_t_gate_ns, rel_tol=1e-6)
+                and math.isclose(cal.p_phys, hw_p_phys, rel_tol=1e-6)):
+            return cal
+    return None
+
+
 def rank(compare_result: dict,
+         hardware_calibrations: dict = None,
          weight_qubits: float = 0.5,
          weight_time: float = 0.3,
          weight_fidelity: float = 0.2) -> list[Recommendation]:
@@ -25,6 +47,10 @@ def rank(compare_result: dict,
     Rankeia combinações hardware+código por score ponderado.
     Apenas combinações viáveis entram no ranking.
     Weights: soma deve ser 1.0 (normaliza internamente se não for).
+
+    Se `hardware_calibrations` for fornecido (dict nome→CalibratedHardware,
+    ex. HARDWARE_PROFILES), combinações que violem o limite de T1
+    (t_circuit >= 0.5×T1) são excluídas do ranking.
     """
     if abs(weight_qubits + weight_time + weight_fidelity - 1.0) > 1e-9:
         total = weight_qubits + weight_time + weight_fidelity
@@ -33,12 +59,31 @@ def rank(compare_result: dict,
         weight_fidelity /= total
 
     prof: CircuitProfile = compare_result["circuit_profile"]
+    hardware_profiles: dict = compare_result.get("hardware_profiles", {})
     candidatos = []
 
     for hw_name, code_results in compare_result["results"].items():
+        cal = None
+        if hardware_calibrations:
+            hw = hardware_profiles.get(hw_name)
+            if hw is not None:
+                cal = _find_calibration(
+                    hw_name, hw.t_gate_ns, hw.p_phys, hardware_calibrations
+                )
+
         for r in code_results:
-            if r.feasible:
-                candidatos.append((hw_name, r))
+            if not r.feasible:
+                continue
+
+            if cal is not None and r.gate_overhead_per_logical:
+                check = cal.t1_constraint(
+                    n_physical_gates=prof.n_physical_gates,
+                    gate_overhead=r.gate_overhead_per_logical,
+                )
+                if not check["feasible"]:
+                    continue
+
+            candidatos.append((hw_name, r))
 
     if not candidatos:
         return []
