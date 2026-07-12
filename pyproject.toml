@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autoq-qec"
+version = "0.1.0"
+description = "Multi-code QEC resource estimator for arbitrary Qiskit circuits"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Ronaldo Rodrigues", email = "Ronaldoengenhariadacomputacao@hotmail.com"}
+]
+keywords = ["quantum", "qec", "surface-code", "fault-tolerant", "qiskit"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "qiskit>=1.0.0",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+ibm = ["qiskit-ibm-runtime>=0.20"]
+sim = ["qiskit-aer>=0.14"]
+dev = ["pytest>=7", "pytest-cov"]
+
+[project.urls]
+Repository = "https://github.com/Ronaldoengenhariadacomputacao/autoq-qec"
+Issues = "https://github.com/Ronaldoengenhariadacomputacao/autoq-qec/issues"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
