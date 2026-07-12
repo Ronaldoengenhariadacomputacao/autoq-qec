@@ -1,5 +1,7 @@
 # AutoQ QEC Estimator
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21325238.svg)](https://doi.org/10.5281/zenodo.21325238)
+
 **Multi-code fault-tolerant quantum error correction estimator for arbitrary Qiskit circuits.**
 
 Given any Qiskit circuit and a set of hardware profiles, AutoQ QEC returns a ranked comparison of QEC codes (Surface Code, Bacon-Shor, Steane [[7,1,3]]) with physically grounded resource estimates: physical qubit count, execution time, and circuit fidelity.

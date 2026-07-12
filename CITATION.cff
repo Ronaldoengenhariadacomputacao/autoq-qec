@@ -5,6 +5,7 @@ title: "AutoQ QEC Estimator"
 version: 0.1.0
 date-released: 2026-07-12
 url: "https://github.com/Ronaldoengenhariadacomputacao/autoq-qec"
+doi: 10.5281/zenodo.21325238
 license: MIT
 authors:
   - family-names: Rodrigues
