@@ -93,7 +93,7 @@ Covers `shor`, `grover`, `qft`, `vqe`. These are rough estimates (±2×–±10×
 ## Test
 
 ```bash
-pytest tests/ -v   # 47 tests, all verify physics not arithmetic
+pytest tests/ -v   # 49 tests, all verify physics not arithmetic
 ```
 
 ## What the tests check (unlike most QEC tools)
