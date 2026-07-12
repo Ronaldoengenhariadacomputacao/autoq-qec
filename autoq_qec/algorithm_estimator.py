@@ -28,7 +28,11 @@ class AlgorithmEstimator:
         Incerteza: ±5× dependendo da implementação de aritmética modular
         (verificado contra Shor N=15 real: fórmula subestima ~4,7×).
         """
-        n = math.ceil(math.log2(N)) if N > 1 else 1
+        if N <= 2:
+            raise ValueError(
+                f"Shor requer N > 2 (N={N} não tem fatoração não-trivial a estimar)"
+            )
+        n = math.ceil(math.log2(N))
         t_count = 20 * n**3
         return AlgorithmEstimate(
             algorithm=f"Shor N={N}",
@@ -49,6 +53,8 @@ class AlgorithmEstimator:
         iteração, não só do número de iterações.
         Fonte: estimativa com oracle genérico.
         """
+        if N <= 1:
+            raise ValueError(f"Grover requer N > 1 itens de busca (N={N})")
         n = math.ceil(math.log2(N))
         iterations = math.ceil(math.pi/4 * math.sqrt(N))
         t_per_iter = 7 * n

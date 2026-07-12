@@ -14,7 +14,7 @@ from .real_hardware import CalibratedHardware, HARDWARE_PROFILES
 from .recommender import rank, Recommendation
 from .algorithm_estimator import AlgorithmEstimator, AlgorithmEstimate
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 __all__ = [
     "CircuitProfile", "HardwareProfile", "CodeResult",
     "CalibratedHardware", "HARDWARE_PROFILES",

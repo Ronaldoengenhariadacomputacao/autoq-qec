@@ -181,6 +181,19 @@ class TestFeature4FloquetCode(unittest.TestCase):
 
 class TestFeature7AlgorithmEstimator(unittest.TestCase):
 
+    def test_shor_N_invalido_rejeitado(self):
+        """N<=2 não tem fatoração não-trivial: deve levantar ValueError,
+        não devolver um t_count fixo e plausível (achado na auditoria v2)."""
+        for N in [2, 1, 0, -5]:
+            with self.assertRaises(ValueError):
+                AlgorithmEstimator.shor(N)
+
+    def test_grover_N_invalido_rejeitado(self):
+        """N<=1 não tem busca não-trivial: deve levantar ValueError."""
+        for N in [1, 0, -3]:
+            with self.assertRaises(ValueError):
+                AlgorithmEstimator.grover(N)
+
     def test_shor_escala_cubica(self):
         e1 = AlgorithmEstimator.shor(15)    # n=4
         e2 = AlgorithmEstimator.shor(255)   # n=8
