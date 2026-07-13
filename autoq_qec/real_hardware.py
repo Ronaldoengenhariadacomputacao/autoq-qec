@@ -178,37 +178,79 @@ def from_ibm_backend(backend_name: str, token: str, instance: str = None) -> Cal
     props = backend.properties()
     config = backend.configuration()
 
-    # Agregar erros por tipo de porta
-    cx_errors, cx_durations = [], []
-    sx_errors, sx_durations = [], []
+    def _duration_ns(param) -> float:
+        # A API da IBM já retorna gate_length na unidade indicada em
+        # param.unit — hoje é 'ns'. Não assumir segundos silenciosamente.
+        unit = getattr(param, "unit", "") or "ns"
+        if unit == "ns":
+            return param.value
+        if unit == "us":
+            return param.value * 1e3
+        if unit in ("s", ""):
+            return param.value * 1e9
+        raise ValueError(f"Unidade de duração desconhecida da IBM: {unit!r}")
 
+    # Erros/durações de porta — a porta nativa de 2 qubits varia por backend
+    # (cx, cz, ecr...); identificar pelo número de qubits, não pelo nome.
+    # Acopladores desativados/quebrados reportam gate_error==1.0 — excluí-los
+    # das estatísticas: nenhum circuito real é roteado por eles (o transpiler
+    # evita), então incluí-los infla p_2q_mean/p_2q_worst de forma enganosa.
+    DEAD_COUPLER_THRESHOLD = 0.99
+    two_q_errors, two_q_durations = [], []
+    one_q_errors, one_q_durations = [], []
+    n_dead_couplers = 0
+    n_dead_qubits = 0
     for gate in props.gates:
-        if gate.gate == 'cx':
+        gate_errs = [p.value for p in gate.parameters if p.name == 'gate_error']
+        is_dead = bool(gate_errs) and gate_errs[0] >= DEAD_COUPLER_THRESHOLD
+        if len(gate.qubits) == 2:
+            if is_dead:
+                n_dead_couplers += 1
+                continue
             for param in gate.parameters:
-                if param.name == 'gate_error': cx_errors.append(param.value)
-                if param.name == 'gate_length': cx_durations.append(param.value * 1e9)
-        if gate.gate in ('sx', 'x'):
+                if param.name == 'gate_error': two_q_errors.append(param.value)
+                if param.name == 'gate_length': two_q_durations.append(_duration_ns(param))
+        elif len(gate.qubits) == 1 and gate.gate in ('sx', 'x'):
+            if is_dead:
+                n_dead_qubits += 1
+                continue
             for param in gate.parameters:
-                if param.name == 'gate_error': sx_errors.append(param.value)
-                if param.name == 'gate_length': sx_durations.append(param.value * 1e9)
+                if param.name == 'gate_error': one_q_errors.append(param.value)
+                if param.name == 'gate_length': one_q_durations.append(_duration_ns(param))
 
-    T1_vals = [props.t1(q) * 1e6 for q in range(config.n_qubits) if props.t1(q)]
-    T2_vals = [props.t2(q) * 1e6 for q in range(config.n_qubits) if props.t2(q)]
-    ro_errs = [props.readout_error(q) for q in range(config.n_qubits)]
+    if not two_q_errors:
+        raise ValueError(
+            f"Nenhuma porta de 2 qubits com dados de calibração encontrada "
+            f"em {backend_name} — não é possível estimar p_2q_mean."
+        )
+
+    T1_vals, T2_vals, ro_errs = [], [], []
+    for q in range(config.n_qubits):
+        try:
+            t1, t2, ro = props.t1(q), props.t2(q), props.readout_error(q)
+        except Exception:
+            continue  # qubit sem calibração (ex.: desativado) — pula, não quebra
+        if t1: T1_vals.append(t1 * 1e6)
+        if t2: T2_vals.append(t2 * 1e6)
+        ro_errs.append(ro)
 
     return CalibratedHardware(
         name=f"IBM {backend_name} (calibração ao vivo)",
         n_qubits=config.n_qubits,
-        p_1q_mean=sum(sx_errors)/len(sx_errors) if sx_errors else 3e-4,
-        p_2q_mean=sum(cx_errors)/len(cx_errors) if cx_errors else 6e-3,
-        p_2q_worst=max(cx_errors) if cx_errors else 2e-2,
-        t_1q_ns=sum(sx_durations)/len(sx_durations) if sx_durations else 56,
-        t_2q_ns=sum(cx_durations)/len(cx_durations) if cx_durations else 400,
+        p_1q_mean=sum(one_q_errors)/len(one_q_errors) if one_q_errors else 3e-4,
+        p_2q_mean=sum(two_q_errors)/len(two_q_errors),
+        p_2q_worst=max(two_q_errors),
+        t_1q_ns=sum(one_q_durations)/len(one_q_durations) if one_q_durations else 56,
+        t_2q_ns=sum(two_q_durations)/len(two_q_durations),
         T1_us=sum(T1_vals)/len(T1_vals) if T1_vals else 200,
         T2_us=sum(T2_vals)/len(T2_vals) if T2_vals else 150,
         readout_error=sum(ro_errs)/len(ro_errs) if ro_errs else 0.015,
         topology="heavy-hex",
-        source=f"IBM Quantum live calibration — {backend_name}",
+        source=(
+            f"IBM Quantum live calibration — {backend_name} "
+            f"({n_dead_couplers} acoplador(es) e {n_dead_qubits} qubit(s) com "
+            f"erro>={DEAD_COUPLER_THRESHOLD} excluído(s) da média)"
+        ),
     )
 
 

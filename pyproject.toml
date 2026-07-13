@@ -31,7 +31,7 @@ dependencies = [
 ibm = ["qiskit-ibm-runtime>=0.20"]
 sim = ["qiskit-aer>=0.14"]
 viz = ["matplotlib>=3.7"]
-dev = ["pytest>=7", "pytest-cov", "matplotlib>=3.7"]
+dev = ["pytest>=7", "pytest-cov", "matplotlib>=3.7", "qiskit-ibm-runtime>=0.20"]
 
 [project.urls]
 Repository = "https://github.com/Ronaldoengenhariadacomputacao/autoq-qec"

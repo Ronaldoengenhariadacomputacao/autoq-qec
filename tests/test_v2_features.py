@@ -15,6 +15,7 @@ from autoq_qec.qec_estimator import (
 from autoq_qec.recommender import rank
 from autoq_qec.real_hardware import HARDWARE_PROFILES
 from autoq_qec.algorithm_estimator import AlgorithmEstimator
+from unittest.mock import patch, MagicMock
 
 
 class TestFix1TCount(unittest.TestCase):
@@ -304,6 +305,115 @@ class TestFeature8Visualizer(unittest.TestCase):
         result = compare(qc, hw, 0.99)
         with self.assertRaises(ValueError):
             plot_tradeoff(result)
+
+
+class _FakeParam:
+    def __init__(self, name, value, unit=""):
+        self.name = name
+        self.value = value
+        self.unit = unit
+
+
+class _FakeGate:
+    def __init__(self, gate, qubits, parameters):
+        self.gate = gate
+        self.qubits = qubits
+        self.parameters = parameters
+
+
+class _FakeProperties:
+    """Simula backend.properties() com os 3 problemas achados em hardware
+    real (ibm_fez/marrakesh/kingston): unidade de gate_length já em ns,
+    porta nativa de 2q não é 'cx' (é 'cz'), e qubit 2 sem T1 calibrado
+    (levanta exceção, como acontece de verdade)."""
+
+    def __init__(self):
+        self.gates = [
+            _FakeGate("cz", [0, 1], [
+                _FakeParam("gate_error", 0.006),
+                _FakeParam("gate_length", 68, unit="ns"),
+            ]),
+            _FakeGate("cz", [1, 2], [
+                _FakeParam("gate_error", 1.0),  # acoplador morto
+                _FakeParam("gate_length", 68, unit="ns"),
+            ]),
+            _FakeGate("sx", [0], [
+                _FakeParam("gate_error", 0.0004),
+                _FakeParam("gate_length", 32, unit="ns"),
+            ]),
+            _FakeGate("sx", [2], [
+                _FakeParam("gate_error", 1.0),  # qubit morto
+                _FakeParam("gate_length", 32, unit="ns"),
+            ]),
+        ]
+        self._t1 = {0: 150e-6, 1: 140e-6}  # qubit 2 sem T1 — vai levantar exceção
+        self._t2 = {0: 100e-6, 1: 90e-6}
+        self._ro = {0: 0.02, 1: 0.018}
+
+    def t1(self, q):
+        if q not in self._t1:
+            raise Exception(f"no T1 for qubit {q}")
+        return self._t1[q]
+
+    def t2(self, q):
+        if q not in self._t2:
+            raise Exception(f"no T2 for qubit {q}")
+        return self._t2[q]
+
+    def readout_error(self, q):
+        if q not in self._ro:
+            raise Exception(f"no readout_error for qubit {q}")
+        return self._ro[q]
+
+
+class _FakeConfig:
+    n_qubits = 3
+
+
+class TestIBMLiveCalibration(unittest.TestCase):
+    """Achados na auditoria com hardware IBM real: unidade de duração,
+    nome de porta hardcoded, e crash em qubit/acoplador sem calibração."""
+
+    def _mock_service(self, mock_service_cls):
+        fake_backend = MagicMock()
+        fake_backend.properties.return_value = _FakeProperties()
+        fake_backend.configuration.return_value = _FakeConfig()
+        mock_service_cls.return_value.backend.return_value = fake_backend
+        return fake_backend
+
+    @patch("qiskit_ibm_runtime.QiskitRuntimeService")
+    def test_duracao_em_ns_nao_multiplicada_de_novo(self, mock_service_cls):
+        """gate_length com unit='ns' não deve ser multiplicado por 1e9."""
+        self._mock_service(mock_service_cls)
+        from autoq_qec.real_hardware import from_ibm_backend
+        hw = from_ibm_backend("fake_backend", token="fake")
+        self.assertEqual(hw.t_1q_ns, 32)
+        self.assertEqual(hw.t_2q_ns, 68)
+
+    @patch("qiskit_ibm_runtime.QiskitRuntimeService")
+    def test_porta_2q_nao_cx_detectada(self, mock_service_cls):
+        """Porta nativa 'cz' (não 'cx') deve ser reconhecida via len(qubits)==2."""
+        self._mock_service(mock_service_cls)
+        from autoq_qec.real_hardware import from_ibm_backend
+        hw = from_ibm_backend("fake_backend", token="fake")
+        self.assertAlmostEqual(hw.p_2q_mean, 0.006, places=6)
+
+    @patch("qiskit_ibm_runtime.QiskitRuntimeService")
+    def test_qubit_sem_t1_nao_quebra(self, mock_service_cls):
+        """Qubit sem T1 calibrado deve ser pulado, não derrubar a função."""
+        self._mock_service(mock_service_cls)
+        from autoq_qec.real_hardware import from_ibm_backend
+        hw = from_ibm_backend("fake_backend", token="fake")  # não deve levantar
+        self.assertAlmostEqual(hw.T1_us, 145.0, places=1)  # média de (150+140)/2
+
+    @patch("qiskit_ibm_runtime.QiskitRuntimeService")
+    def test_acoplador_morto_excluido_da_media(self, mock_service_cls):
+        """gate_error==1.0 (acoplador/qubit morto) não deve entrar na média."""
+        self._mock_service(mock_service_cls)
+        from autoq_qec.real_hardware import from_ibm_backend
+        hw = from_ibm_backend("fake_backend", token="fake")
+        self.assertLess(hw.p_2q_mean, 0.5, "acoplador morto (erro=1.0) vazou pra média")
+        self.assertLess(hw.p_1q_mean, 0.5, "qubit morto (erro=1.0) vazou pra média")
 
 
 if __name__ == "__main__":
