@@ -251,5 +251,60 @@ class TestFeature7AlgorithmEstimator(unittest.TestCase):
             self.assertLess(est.n_logical_qubits, 10000)
 
 
+class TestFeature56Hardware(unittest.TestCase):
+
+    def test_willow_existe(self):
+        self.assertIn("Google_Willow", HARDWARE_PROFILES)
+
+    def test_heron_r3_existe(self):
+        self.assertIn("IBM_Heron_r3", HARDWARE_PROFILES)
+
+    def test_willow_parametros_bounds(self):
+        w = HARDWARE_PROFILES["Google_Willow"]
+        self.assertEqual(w.n_qubits, 105)
+        self.assertLess(w.p_2q_mean, 0.005)    # paper: ~0.3%
+        self.assertGreater(w.T1_us, 80)         # paper: ~100µs
+        self.assertLessEqual(w.t_2q_ns, 50)     # paper: ~25ns
+
+    def test_heron_r3_melhor_que_r2(self):
+        """Heron r3 deve ter menor p_2q e maior velocidade que Heron r2."""
+        r2 = HARDWARE_PROFILES["IBM_Heron_r2"]
+        r3 = HARDWARE_PROFILES["IBM_Heron_r3"]
+        self.assertLess(r3.p_2q_mean, r2.p_2q_mean)
+        self.assertLessEqual(r3.t_2q_ns, r2.t_2q_ns)
+
+    def test_willow_integravel_no_compare(self):
+        """Willow deve funcionar como hardware no compare()."""
+        qc = QuantumCircuit(2); qc.h(0); qc.cx(0, 1)
+        w = HARDWARE_PROFILES["Google_Willow"]
+        hw = HardwareProfile(w.name, w.t_2q_ns, w.p_phys, w.topology)
+        result = compare(qc, [hw], 0.99)
+        self.assertIn(w.name, result["results"])
+
+
+class TestFeature8Visualizer(unittest.TestCase):
+
+    def test_plot_gera_arquivo_png(self):
+        from autoq_qec.visualizer import plot_tradeoff
+        import tempfile, os
+        qc = QuantumCircuit(2); qc.h(0); qc.cx(0, 1)
+        hw = [HardwareProfile("IBM", 391, 0.001, "heavy-hex"),
+              HardwareProfile("H2", 1e5, 0.00029, "all-to-all")]
+        result = compare(qc, hw, 0.99)
+        with tempfile.TemporaryDirectory() as tmp:
+            output = os.path.join(tmp, "test.png")
+            plot_tradeoff(result, output=output)
+            self.assertTrue(os.path.exists(output))
+            self.assertGreater(os.path.getsize(output), 5000)
+
+    def test_sem_combinacoes_viaveis_levanta_erro(self):
+        from autoq_qec.visualizer import plot_tradeoff
+        qc = QuantumCircuit(2); qc.h(0); qc.cx(0, 1)
+        hw = [HardwareProfile("ruim", t_gate_ns=1000, p_phys=0.02, topology="linear")]
+        result = compare(qc, hw, 0.99)
+        with self.assertRaises(ValueError):
+            plot_tradeoff(result)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -121,6 +121,37 @@ HARDWARE_PROFILES = {
         topology="grid-2d",
         source="Arute et al., Nature 574, 505 (2019)",
     ),
+
+    "Google_Willow": CalibratedHardware(
+        name="Google Willow (105q)",
+        n_qubits=105,
+        p_1q_mean=5.0e-4,
+        p_2q_mean=3.0e-3,
+        p_2q_worst=8.0e-3,
+        t_1q_ns=25.0,
+        t_2q_ns=25.0,
+        T1_us=100.0,
+        T2_us=150.0,
+        readout_error=0.007,
+        topology="grid-2d",
+        source="Acharya et al. (Google), Nature 638, 964-971 (2025). "
+               "doi:10.1038/s41586-024-08449-y",
+    ),
+
+    "IBM_Heron_r3": CalibratedHardware(
+        name="IBM Heron r3 (ibm_pittsburgh)",
+        n_qubits=133,
+        p_1q_mean=1.5e-4,
+        p_2q_mean=2.0e-3,
+        p_2q_worst=5.0e-3,
+        t_1q_ns=56.0,
+        t_2q_ns=80.0,
+        T1_us=180.0,
+        T2_us=140.0,
+        readout_error=0.007,
+        topology="heavy-hex",
+        source="IBM Quantum changelog Q4 2025; ibm_pittsburgh (Heron r3)",
+    ),
 }
 
 # ── Integração IBM real (requer token) ────────────────────────────────────────

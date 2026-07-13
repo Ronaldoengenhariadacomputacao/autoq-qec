@@ -90,10 +90,27 @@ print(est.t_count_estimate, est.t_count_uncertainty)  # ±5x — build the real 
 
 Covers `shor`, `grover`, `qft`, `vqe`. These are rough estimates (±2×–±10× depending on the algorithm) — use `extract_circuit_profile()` on a real circuit whenever possible.
 
+## Hardware profiles
+
+Includes `Google_Willow` (105q, Acharya et al., Nature 638, 964-971, 2025) and `IBM_Heron_r3` (`ibm_pittsburgh`, Q4 2025), alongside `IBM_Eagle_r3`, `IBM_Heron_r2`, `Quantinuum_H2`, `IonQ_Aria`, `Google_Sycamore`.
+
+## Visualization
+
+```bash
+pip install "autoq-qec[viz]"
+```
+
+```python
+from autoq_qec.visualizer import plot_tradeoff
+
+result = compare(circuit, hardwares, fidelity_target=0.99)
+plot_tradeoff(result, output="tradeoff.png")  # log-log qubits × time, color = fidelity
+```
+
 ## Test
 
 ```bash
-pytest tests/ -v   # 49 tests, all verify physics not arithmetic
+pytest tests/ -v   # 56 tests, all verify physics not arithmetic
 ```
 
 ## What the tests check (unlike most QEC tools)
