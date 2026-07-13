@@ -27,6 +27,7 @@ class HardwareProfile:
     t_gate_ns: float           # tempo de porta em nanossegundos
     p_phys: float              # taxa de erro físico por porta
     topology: str              # "heavy-hex", "all-to-all", "linear", "grid"
+    readout_error: float = 0.0  # erro de leitura médio por qubit (opcional)
 
 @dataclass
 class CodeResult:
@@ -211,7 +212,11 @@ def estimate(circuit_profile: CircuitProfile,
         gate_overhead = cycles * d**2  # = d³
         total_phys_gates = N * gate_overhead
         time_us = total_phys_gates * t_ns / 1000
-        fid = (1 - p_L) ** N
+        # Fidelidade do circuito × fidelidade de leitura (medição de cada
+        # qubit lógico ao final). readout_error=0.0 (padrão) preserva o
+        # comportamento anterior — sem esse termo, superestimava-se a
+        # fidelidade em cenários reais (achado testando com IBM real).
+        fid = (1 - p_L) ** N * (1 - hardware.readout_error) ** n_L
         results.append(CodeResult(
             code_name="Surface Code",
             distance=d,
@@ -240,7 +245,11 @@ def estimate(circuit_profile: CircuitProfile,
         total_q = q_per_L * n_L
         total_phys_gates = N * cycles
         time_us = total_phys_gates * t_ns / 1000
-        fid = (1 - p_L) ** N
+        # Fidelidade do circuito × fidelidade de leitura (medição de cada
+        # qubit lógico ao final). readout_error=0.0 (padrão) preserva o
+        # comportamento anterior — sem esse termo, superestimava-se a
+        # fidelidade em cenários reais (achado testando com IBM real).
+        fid = (1 - p_L) ** N * (1 - hardware.readout_error) ** n_L
         results.append(CodeResult(
             code_name="Bacon-Shor",
             distance=d,
@@ -269,7 +278,11 @@ def estimate(circuit_profile: CircuitProfile,
         total_q = q_per_L * n_L
         total_phys_gates = N * cycles
         time_us = total_phys_gates * t_ns / 1000
-        fid = (1 - p_L) ** N
+        # Fidelidade do circuito × fidelidade de leitura (medição de cada
+        # qubit lógico ao final). readout_error=0.0 (padrão) preserva o
+        # comportamento anterior — sem esse termo, superestimava-se a
+        # fidelidade em cenários reais (achado testando com IBM real).
+        fid = (1 - p_L) ** N * (1 - hardware.readout_error) ** n_L
         results.append(CodeResult(
             code_name="Steane [[7,1,3]]",
             distance=3,
@@ -298,7 +311,11 @@ def estimate(circuit_profile: CircuitProfile,
         total_q = q_per_L * n_L
         total_phys_gates = N * cycles
         time_us = total_phys_gates * t_ns / 1000
-        fid = (1 - p_L) ** N
+        # Fidelidade do circuito × fidelidade de leitura (medição de cada
+        # qubit lógico ao final). readout_error=0.0 (padrão) preserva o
+        # comportamento anterior — sem esse termo, superestimava-se a
+        # fidelidade em cenários reais (achado testando com IBM real).
+        fid = (1 - p_L) ** N * (1 - hardware.readout_error) ** n_L
         results.append(CodeResult(
             code_name="Floquet Code",
             distance=d,

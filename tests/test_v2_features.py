@@ -416,5 +416,54 @@ class TestIBMLiveCalibration(unittest.TestCase):
         self.assertLess(hw.p_1q_mean, 0.5, "qubit morto (erro=1.0) vazou pra média")
 
 
+class TestReadoutErrorFidelity(unittest.TestCase):
+    """
+    Achado testando com ruído real de IBM (ibm_marrakesh, GHZ-4): a
+    fidelidade prevista sem termo de leitura superestimava a real em ~11
+    pontos percentuais (97,7% previsto vs 86,6% empírico). Adicionado
+    (1-readout_error)^n_logical_qubits à fórmula.
+    """
+
+    def _feasible_surface(self, hw):
+        qc = QuantumCircuit(2); qc.h(0); qc.cx(0, 1)
+        prof = extract_circuit_profile(qc)
+        results = estimate(prof, hw, fidelity_target=0.99)
+        return next(r for r in results if r.code_name == "Surface Code" and r.feasible)
+
+    def test_readout_zero_preserva_comportamento_antigo(self):
+        """readout_error padrão (0.0): fid deve ser exatamente (1-p_L)^N, sem termo extra.
+        N aqui é circuit_profile.n_physical_gates (o expoente real da fórmula),
+        não total_physical_gates (que já inclui o overhead do código QEC)."""
+        hw = HardwareProfile("test", t_gate_ns=100, p_phys=0.001, topology="grid")
+        qc = QuantumCircuit(2); qc.h(0); qc.cx(0, 1)
+        prof = extract_circuit_profile(qc)
+        r = self._feasible_surface(hw)
+        expected = (1 - r.p_logical_achieved) ** prof.n_physical_gates
+        self.assertAlmostEqual(r.fidelity_circuit, expected, places=10)
+
+    def test_readout_error_reduz_fidelidade(self):
+        """readout_error > 0 deve reduzir fidelity_circuit em relação a 0."""
+        hw_sem = HardwareProfile("sem_ro", t_gate_ns=100, p_phys=0.001, topology="grid", readout_error=0.0)
+        hw_com = HardwareProfile("com_ro", t_gate_ns=100, p_phys=0.001, topology="grid", readout_error=0.02)
+        r_sem = self._feasible_surface(hw_sem)
+        r_com = self._feasible_surface(hw_com)
+        self.assertLess(r_com.fidelity_circuit, r_sem.fidelity_circuit)
+
+    def test_readout_error_escala_com_n_qubits(self):
+        """Mais qubits lógicos medidos → mais impacto do readout_error."""
+        hw = HardwareProfile("test", t_gate_ns=100, p_phys=0.001, topology="grid", readout_error=0.02)
+        qc_pequeno = QuantumCircuit(2); qc_pequeno.h(0); qc_pequeno.cx(0, 1)
+        qc_grande = QuantumCircuit(6)
+        for i in range(6): qc_grande.h(i)
+        for i in range(5): qc_grande.cx(i, i + 1)
+        r_pequeno = next(r for r in estimate(extract_circuit_profile(qc_pequeno), hw, 0.99)
+                          if r.code_name == "Surface Code" and r.feasible)
+        r_grande = next(r for r in estimate(extract_circuit_profile(qc_grande), hw, 0.99)
+                         if r.code_name == "Surface Code" and r.feasible)
+        readout_term_pequeno = (1 - hw.readout_error) ** 2
+        readout_term_grande = (1 - hw.readout_error) ** 6
+        self.assertLess(readout_term_grande, readout_term_pequeno)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

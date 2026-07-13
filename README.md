@@ -34,11 +34,13 @@ from autoq_qec import HARDWARE_PROFILES, CalibratedHardware, HardwareProfile
 circuit = QuantumCircuit(4)
 circuit.h(0); circuit.cx(0,1); circuit.cx(1,2); circuit.cx(2,3)
 
-# Hardware profiles (built-in or custom)
+# Hardware profiles (built-in or custom). readout_error is optional
+# (defaults to 0.0) but recommended — omitting it overestimates fidelity,
+# since it ignores measurement error entirely (see "Physical models" below).
 hardwares = [
-    HardwareProfile("IBM_Eagle",     t_gate_ns=391,   p_phys=0.0062, topology="heavy-hex"),
-    HardwareProfile("IBM_Heron",     t_gate_ns=100,   p_phys=0.003,  topology="heavy-hex"),
-    HardwareProfile("Quantinuum_H2", t_gate_ns=100e3, p_phys=0.00029,topology="all-to-all"),
+    HardwareProfile("IBM_Eagle",     t_gate_ns=391,   p_phys=0.0062, topology="heavy-hex", readout_error=0.014),
+    HardwareProfile("IBM_Heron",     t_gate_ns=100,   p_phys=0.003,  topology="heavy-hex", readout_error=0.009),
+    HardwareProfile("Quantinuum_H2", t_gate_ns=100e3, p_phys=0.00029,topology="all-to-all", readout_error=0.0015),
 ]
 
 # One call — returns all codes × all hardwares
@@ -77,6 +79,8 @@ sim = noise_model_from_ibm("ibm_brisbane", token="YOUR_IBM_TOKEN")
 
 Thresholds are enforced: `p ≥ p_th` raises `ValueError` — no silent wrong results.
 
+**Fidelity formula**: `fidelity_circuit = (1 - p_L)^n_gates × (1 - readout_error)^n_logical_qubits`. The readout term was added after validating against a real noisy simulation (IBM `ibm_marrakesh`, GHZ-4 circuit): without it, predicted fidelity was 97.7% vs. 86.6% empirical — the gap was almost entirely measurement error, not gate error. The model still doesn't account for T1/T2 idle-time decoherence; treat `fidelity_circuit` as an upper bound, not a precise prediction.
+
 ## Algorithm Estimator
 
 Order-of-magnitude T-count estimates for known algorithms, without building the full circuit:
@@ -110,7 +114,7 @@ plot_tradeoff(result, output="tradeoff.png")  # log-log qubits × time, color = 
 ## Test
 
 ```bash
-pytest tests/ -v   # 56 tests, all verify physics not arithmetic
+pytest tests/ -v   # 63 tests, all verify physics not arithmetic
 ```
 
 ## What the tests check (unlike most QEC tools)
