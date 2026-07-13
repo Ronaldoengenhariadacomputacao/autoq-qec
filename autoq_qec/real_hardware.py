@@ -156,18 +156,24 @@ HARDWARE_PROFILES = {
 
 # ── Integração IBM real (requer token) ────────────────────────────────────────
 
-def from_ibm_backend(backend_name: str, token: str) -> CalibratedHardware:
+def from_ibm_backend(backend_name: str, token: str, instance: str = None) -> CalibratedHardware:
     """
     Puxa calibração real do IBM Quantum via qiskit-ibm-runtime.
     Requer: pip install qiskit-ibm-runtime
-    Token gratuito em: https://quantum.ibm.com
+    Token gratuito em: https://quantum.cloud.ibm.com (plataforma IBM Cloud —
+    substituiu o antigo quantum.ibm.com/channel 'ibm_quantum', descontinuado).
+    `instance`: CRN da instância IBM Cloud, se sua conta exigir (opcional no
+    Open Plan para a maioria dos casos).
     """
     try:
         from qiskit_ibm_runtime import QiskitRuntimeService
     except ImportError:
         raise ImportError("pip install qiskit-ibm-runtime")
 
-    service = QiskitRuntimeService(channel='ibm_quantum', token=token)
+    kwargs = {"token": token}
+    if instance:
+        kwargs["instance"] = instance
+    service = QiskitRuntimeService(**kwargs)
     backend = service.backend(backend_name)
     props = backend.properties()
     config = backend.configuration()
@@ -206,7 +212,7 @@ def from_ibm_backend(backend_name: str, token: str) -> CalibratedHardware:
     )
 
 
-def noise_model_from_ibm(backend_name: str, token: str):
+def noise_model_from_ibm(backend_name: str, token: str, instance: str = None):
     """
     Constrói AerSimulator com noise model real do backend IBM.
     Permite simular localmente com ruído realista sem usar shots pagos.
@@ -219,7 +225,10 @@ def noise_model_from_ibm(backend_name: str, token: str):
     except ImportError:
         raise ImportError("pip install qiskit-ibm-runtime qiskit-aer")
 
-    service = QiskitRuntimeService(channel='ibm_quantum', token=token)
+    kwargs = {"token": token}
+    if instance:
+        kwargs["instance"] = instance
+    service = QiskitRuntimeService(**kwargs)
     backend = service.backend(backend_name)
     noise_model = NoiseModel.from_backend(backend)
     sim = AerSimulator(noise_model=noise_model,
