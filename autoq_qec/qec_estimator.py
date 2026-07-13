@@ -28,6 +28,8 @@ class HardwareProfile:
     p_phys: float              # taxa de erro físico por porta
     topology: str              # "heavy-hex", "all-to-all", "linear", "grid"
     readout_error: float = 0.0  # erro de leitura médio por qubit (opcional)
+    T1_us: Optional[float] = None  # tempo de relaxação (opcional)
+    T2_us: Optional[float] = None  # tempo de decoerência (opcional)
 
 @dataclass
 class CodeResult:
@@ -177,6 +179,21 @@ def extract_circuit_profile(circuit) -> CircuitProfile:
         cx_count=cx_count,
     )
 
+def _decoherence_factor(time_us: float, T2_us: Optional[float]) -> float:
+    """
+    Fator de sobrevivência à decoerência T2 ao longo da execução do circuito
+    (aproximação exp(-t/T2), padrão em estimativas de coerência). Captura
+    perda de fidelidade que o erro por-porta não pega: qubits ociosos
+    decaindo enquanto outras portas do circuito ainda rodam — relevante
+    porque o overhead de sindrome do QEC (d³ para Surface Code) alonga
+    bastante o tempo total de execução.
+    T2_us=None (padrão) preserva o comportamento anterior — sem esse termo.
+    """
+    if T2_us is None or T2_us <= 0:
+        return 1.0
+    return math.exp(-time_us / T2_us)
+
+
 # ── Estimador principal ───────────────────────────────────────────────────────
 
 def estimate(circuit_profile: CircuitProfile,
@@ -216,7 +233,8 @@ def estimate(circuit_profile: CircuitProfile,
         # qubit lógico ao final). readout_error=0.0 (padrão) preserva o
         # comportamento anterior — sem esse termo, superestimava-se a
         # fidelidade em cenários reais (achado testando com IBM real).
-        fid = (1 - p_L) ** N * (1 - hardware.readout_error) ** n_L
+        fid = ((1 - p_L) ** N * (1 - hardware.readout_error) ** n_L
+               * _decoherence_factor(time_us, hardware.T2_us))
         results.append(CodeResult(
             code_name="Surface Code",
             distance=d,
@@ -249,7 +267,8 @@ def estimate(circuit_profile: CircuitProfile,
         # qubit lógico ao final). readout_error=0.0 (padrão) preserva o
         # comportamento anterior — sem esse termo, superestimava-se a
         # fidelidade em cenários reais (achado testando com IBM real).
-        fid = (1 - p_L) ** N * (1 - hardware.readout_error) ** n_L
+        fid = ((1 - p_L) ** N * (1 - hardware.readout_error) ** n_L
+               * _decoherence_factor(time_us, hardware.T2_us))
         results.append(CodeResult(
             code_name="Bacon-Shor",
             distance=d,
@@ -282,7 +301,8 @@ def estimate(circuit_profile: CircuitProfile,
         # qubit lógico ao final). readout_error=0.0 (padrão) preserva o
         # comportamento anterior — sem esse termo, superestimava-se a
         # fidelidade em cenários reais (achado testando com IBM real).
-        fid = (1 - p_L) ** N * (1 - hardware.readout_error) ** n_L
+        fid = ((1 - p_L) ** N * (1 - hardware.readout_error) ** n_L
+               * _decoherence_factor(time_us, hardware.T2_us))
         results.append(CodeResult(
             code_name="Steane [[7,1,3]]",
             distance=3,
@@ -315,7 +335,8 @@ def estimate(circuit_profile: CircuitProfile,
         # qubit lógico ao final). readout_error=0.0 (padrão) preserva o
         # comportamento anterior — sem esse termo, superestimava-se a
         # fidelidade em cenários reais (achado testando com IBM real).
-        fid = (1 - p_L) ** N * (1 - hardware.readout_error) ** n_L
+        fid = ((1 - p_L) ** N * (1 - hardware.readout_error) ** n_L
+               * _decoherence_factor(time_us, hardware.T2_us))
         results.append(CodeResult(
             code_name="Floquet Code",
             distance=d,

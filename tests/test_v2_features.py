@@ -465,5 +465,58 @@ class TestReadoutErrorFidelity(unittest.TestCase):
         self.assertLess(readout_term_grande, readout_term_pequeno)
 
 
+class TestDecoherenceFidelity(unittest.TestCase):
+    """T2_us=None (padrão) preserva comportamento anterior; T2_us finito
+    penaliza fidelidade quando o tempo de execução (já incluindo overhead
+    de síndrome do QEC) se aproxima ou excede T2 — efeito que o erro
+    por-porta sozinho não captura."""
+
+    def _surface(self, hw, qc=None):
+        qc = qc or QuantumCircuit(2)
+        if qc.num_qubits == 2 and qc.size() == 0:
+            qc.h(0); qc.cx(0, 1)
+        prof = extract_circuit_profile(qc)
+        results = estimate(prof, hw, fidelity_target=0.99)
+        return next(r for r in results if r.code_name == "Surface Code" and r.feasible)
+
+    def test_t2_none_preserva_comportamento_antigo(self):
+        hw = HardwareProfile("test", t_gate_ns=100, p_phys=0.001, topology="grid")
+        self.assertIsNone(hw.T2_us)
+        r = self._surface(hw)
+        qc = QuantumCircuit(2); qc.h(0); qc.cx(0, 1)
+        prof = extract_circuit_profile(qc)
+        expected = (1 - r.p_logical_achieved) ** prof.n_physical_gates
+        self.assertAlmostEqual(r.fidelity_circuit, expected, places=10)
+
+    def test_t2_finito_reduz_fidelidade(self):
+        hw_sem = HardwareProfile("sem_t2", t_gate_ns=100, p_phys=0.001, topology="grid")
+        hw_com = HardwareProfile("com_t2", t_gate_ns=100, p_phys=0.001, topology="grid", T2_us=50.0)
+        r_sem = self._surface(hw_sem)
+        r_com = self._surface(hw_com)
+        self.assertLess(r_com.fidelity_circuit, r_sem.fidelity_circuit)
+
+    def test_tempo_muito_maior_que_t2_colapsa_fidelidade(self):
+        """Se o overhead do QEC faz o circuito rodar por >>T2, a fidelidade
+        deve cair pra perto de zero — o d³ do Surface Code em hardware
+        ruidoso pode facilmente estourar T2 (achado real com IonQ_Aria)."""
+        hw = HardwareProfile("ruidoso_lento", t_gate_ns=600e3, p_phys=0.005,
+                              topology="all-to-all", T2_us=100.0)
+        qc = QuantumCircuit(3)
+        qc.h(0); qc.cx(0, 1); qc.cx(1, 2)
+        r = self._surface(hw, qc)
+        self.assertLess(r.fidelity_circuit, 0.01,
+            f"tempo={r.execution_time_us}µs vs T2=100µs deveria colapsar a fidelidade")
+
+    def test_decoerencia_nunca_gera_fidelidade_invalida(self):
+        """Fidelidade deve sempre ficar em [0,1], mesmo em casos extremos."""
+        hw = HardwareProfile("extremo", t_gate_ns=1e6, p_phys=0.009,
+                              topology="linear", T2_us=1.0)
+        qc = QuantumCircuit(4)
+        for i in range(3): qc.cx(i, i + 1)
+        r = self._surface(hw, qc)
+        self.assertGreaterEqual(r.fidelity_circuit, 0.0)
+        self.assertLessEqual(r.fidelity_circuit, 1.0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

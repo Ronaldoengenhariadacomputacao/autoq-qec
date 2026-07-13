@@ -79,7 +79,9 @@ sim = noise_model_from_ibm("ibm_brisbane", token="YOUR_IBM_TOKEN")
 
 Thresholds are enforced: `p ≥ p_th` raises `ValueError` — no silent wrong results.
 
-**Fidelity formula**: `fidelity_circuit = (1 - p_L)^n_gates × (1 - readout_error)^n_logical_qubits`. The readout term was added after validating against a real noisy simulation (IBM `ibm_marrakesh`, GHZ-4 circuit): without it, predicted fidelity was 97.7% vs. 86.6% empirical — the gap was almost entirely measurement error, not gate error. The model still doesn't account for T1/T2 idle-time decoherence; treat `fidelity_circuit` as an upper bound, not a precise prediction.
+**Fidelity formula**: `fidelity_circuit = (1 - p_L)^n_gates × (1 - readout_error)^n_logical_qubits × exp(-execution_time_us / T2_us)`. `readout_error` and `T2_us` are optional fields on `HardwareProfile` (default `0.0` / `None`, preserving the old formula if omitted).
+
+This is an order-of-magnitude estimator, not a calibrated simulator — the readout and T2 terms were added after comparing a hand-rolled `(1-p_phys)^n_gates` baseline against a real noisy Aer simulation (IBM `ibm_marrakesh`, GHZ-4 circuit): the raw gate-error-only baseline predicted 97.7% vs. 86.6% empirical, and most of that 11-point gap closed once readout error was included. This was a structural sanity check on the *shape* of the formula, not a calibration of `fidelity_circuit` itself (which uses `p_L`, the post-QEC logical error rate — several orders of magnitude smaller than raw `p_phys`, so the two aren't numerically comparable). Treat `fidelity_circuit` as directionally correct, not a precise prediction.
 
 ## Algorithm Estimator
 
@@ -114,7 +116,7 @@ plot_tradeoff(result, output="tradeoff.png")  # log-log qubits × time, color = 
 ## Test
 
 ```bash
-pytest tests/ -v   # 63 tests, all verify physics not arithmetic
+pytest tests/ -v   # 67 tests, all verify physics not arithmetic
 ```
 
 ## What the tests check (unlike most QEC tools)
