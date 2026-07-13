@@ -81,7 +81,16 @@ Thresholds are enforced: `p ≥ p_th` raises `ValueError` — no silent wrong re
 
 **Fidelity formula**: `fidelity_circuit = (1 - p_L)^n_gates × (1 - readout_error)^n_logical_qubits × exp(-execution_time_us / T2_us)`. `readout_error` and `T2_us` are optional fields on `HardwareProfile` (default `0.0` / `None`, preserving the old formula if omitted).
 
-This is an order-of-magnitude estimator, not a calibrated simulator — the readout and T2 terms were added after comparing a hand-rolled `(1-p_phys)^n_gates` baseline against a real noisy Aer simulation (IBM `ibm_marrakesh`, GHZ-4 circuit): the raw gate-error-only baseline predicted 97.7% vs. 86.6% empirical, and most of that 11-point gap closed once readout error was included. This was a structural sanity check on the *shape* of the formula, not a calibration of `fidelity_circuit` itself (which uses `p_L`, the post-QEC logical error rate — several orders of magnitude smaller than raw `p_phys`, so the two aren't numerically comparable). Treat `fidelity_circuit` as directionally correct, not a precise prediction.
+This is an order-of-magnitude estimator, not a calibrated simulator. The readout term was added after comparing a hand-rolled `(1-p_phys)^n_gates` baseline against noisy Aer simulations of a GHZ-4 circuit, across 4 hardware noise models — 3 real (IBM `ibm_fez`, `ibm_marrakesh`, `ibm_kingston`, pulled live via Open Plan) and 1 synthetic (Google Willow, built from the published Nature 638 specs, since Google has no public self-service hardware access):
+
+| Hardware | Prediction error, gate-error only | Prediction error, with readout term |
+|---|---|---|
+| ibm_fez (real) | 5.3% | 2.4% |
+| ibm_marrakesh (real) | 10.3% | 2.7% |
+| ibm_kingston (real) | 0.8% | 5.3% (worse) |
+| Google Willow (synthetic) | 2.4% | 0.4% |
+
+Adding readout error improved the prediction in 3 of 4 cases; it made `ibm_kingston` worse, most likely single-run shot noise (4000 shots, one run) rather than a systematic flaw — `ibm_kingston`'s gate-error-only baseline was already unusually accurate (0.8% off) before the correction. This was a structural sanity check on the *shape* of the formula, not a calibration of `fidelity_circuit` itself (which uses `p_L`, the post-QEC logical error rate — several orders of magnitude smaller than raw `p_phys`, so the two aren't numerically comparable). Treat `fidelity_circuit` as directionally correct, not a precise prediction.
 
 ## Algorithm Estimator
 
