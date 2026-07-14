@@ -79,7 +79,13 @@ sim = noise_model_from_ibm("ibm_brisbane", token="YOUR_IBM_TOKEN")
 
 Thresholds are enforced: `p ≥ p_th` raises `ValueError` — no silent wrong results.
 
-**Known limitation — magic state distillation is not modeled.** `total_physical_qubits` and `execution_time_us` scale with `n_physical_gates` (total gate count) only. They do **not** account for T-gate count or the cost of magic state distillation, which in real fault-tolerant quantum computing is typically the dominant resource driver — Clifford gates are cheap under most codes (including Surface Code), T-gates are not. `extract_circuit_profile()` does compute an exact `t_count` (see `CircuitProfile`), but it is currently reported for information only and is not yet used in the resource formulas. Two circuits with identical total gate count but wildly different T-counts will today receive identical resource estimates, which is not physically accurate. Treat `total_physical_qubits`/`execution_time_us` as useful for comparing the *relative overhead shape* between QEC codes (Surface vs. Floquet vs. Bacon-Shor vs. Steane) on the same circuit — not as an absolute resource figure for real hardware provisioning or algorithm-level engineering decisions. Incorporating T-count-driven distillation cost (e.g., following Fowler & Gidney, "Low overhead quantum computation using lattice surgery", arXiv:1808.06709) is on the roadmap.
+**Magic state distillation (opt-in).** By default, `total_physical_qubits`/`execution_time_us` scale with `n_physical_gates` only and ignore T-gate count — physically inaccurate, since magic state distillation (needed for T-gates, not Clifford gates) is normally the dominant resource cost in real fault-tolerant quantum computing. Pass `model_magic_state_distillation=True` to `compare()`/`estimate()` to include it: each `CodeResult` gets `magic_state_qubits`, `magic_state_factories`, and `magic_state_t_state_error` populated, and both totals grow accordingly.
+
+```python
+result = compare(circuit, hardwares, fidelity_target=0.99, model_magic_state_distillation=True)
+```
+
+The T-factory cost model (`autoq_qec/distillation.py`) implements the multi-round 15-to-1 distillation formulas from Beverland, Kliuchnikov, Schoute et al., "Assessing requirements to scale to practical quantum advantage", arXiv:2211.07629 (Appendix C, Table VI; Appendix E, Eqs. C1–C4, E4–E6) — validated against the paper's own worked examples (Table VII) as regression tests (`tests/test_distillation.py`), reproducing their exact numbers (qubits, time, output error) for both a 1-round and a 2-round factory. Two simplifications versus the paper, documented in the module docstring: the per-round factory search is greedy (cheapest distance meeting the round's error target) rather than a global optimum over a full factory catalog, and the physical T-state input error is assumed equal to the hardware's Clifford error rate `p_phys` (the paper allows a separate value for Majorana qubits, which this package doesn't model). Default is `False` — existing code is unaffected.
 
 **Fidelity formula**: `fidelity_circuit = (1 - p_L)^n_gates × (1 - readout_error)^n_logical_qubits × exp(-execution_time_us / T2_us)`. `readout_error` and `T2_us` are optional fields on `HardwareProfile` (default `0.0` / `None`, preserving the old formula if omitted).
 
@@ -127,7 +133,7 @@ plot_tradeoff(result, output="tradeoff.png")  # log-log qubits × time, color = 
 ## Test
 
 ```bash
-pytest tests/ -v   # 67 tests, all verify physics not arithmetic
+pytest tests/ -v   # 79 tests, all verify physics not arithmetic
 ```
 
 ## What the tests check (unlike most QEC tools)

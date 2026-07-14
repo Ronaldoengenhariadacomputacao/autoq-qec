@@ -30,6 +30,7 @@ class HardwareProfile:
     readout_error: float = 0.0  # erro de leitura médio por qubit (opcional)
     T1_us: Optional[float] = None  # tempo de relaxação (opcional)
     T2_us: Optional[float] = None  # tempo de decoerência (opcional)
+    t_meas_ns: Optional[float] = None  # tempo de medição (opcional, default=t_gate_ns)
 
 @dataclass
 class CodeResult:
@@ -44,6 +45,11 @@ class CodeResult:
     fidelity_circuit: Optional[float]
     feasible: bool
     reason: str                # motivo de inviabilidade ou sumário
+    # Custo de destilação de estado mágico — só preenchido quando
+    # model_magic_state_distillation=True em estimate() (ver distillation.py)
+    magic_state_qubits: Optional[int] = None
+    magic_state_factories: Optional[int] = None
+    magic_state_t_state_error: Optional[float] = None
 
 # ── Modelos QEC ──────────────────────────────────────────────────────────────
 
@@ -198,12 +204,20 @@ def _decoherence_factor(time_us: float, T2_us: Optional[float]) -> float:
 
 def estimate(circuit_profile: CircuitProfile,
              hardware: HardwareProfile,
-             fidelity_target: float = 0.99) -> list[CodeResult]:
+             fidelity_target: float = 0.99,
+             model_magic_state_distillation: bool = False) -> list[CodeResult]:
     """
     Para um dado CircuitProfile + HardwareProfile + alvo de fidelidade,
     retorna lista de CodeResult para cada código QEC analisado.
 
     p_L_per_gate = (1 - fidelity_target) / n_physical_gates
+
+    model_magic_state_distillation=False (padrão) preserva o comportamento
+    anterior: total_physical_qubits/execution_time_us não incluem o custo
+    de destilação de estado mágico (T-factories) — ver "Known limitation"
+    no README. Quando True, cada CodeResult viável ganha o custo de
+    fábrica de destilação (Beverland et al., arXiv:2211.07629) somado aos
+    totais, e os campos magic_state_* são preenchidos.
     """
     if not (0 < fidelity_target < 1):
         raise ValueError("fidelity_target deve estar em (0, 1)")
@@ -359,11 +373,54 @@ def estimate(circuit_profile: CircuitProfile,
             feasible=False, reason=str(e),
         ))
 
+    if model_magic_state_distillation:
+        _apply_magic_state_distillation(results, circuit_profile, hardware, p_L_target)
+
     return results
 
 
+def _apply_magic_state_distillation(results: list, circuit_profile: CircuitProfile,
+                                     hardware: HardwareProfile, p_L_target: float) -> None:
+    """
+    Adiciona o custo de destilação de estado mágico (T-factories) aos
+    CodeResult viáveis, mutando a lista in-place. Reaproveita o mesmo
+    orçamento de erro por operação lógica (p_L_target) já usado pelo
+    resto do circuito como alvo de erro do T-state — ver distillation.py.
+    """
+    from .distillation import magic_state_resources
+
+    t_count = circuit_profile.t_count
+    if t_count == 0:
+        return  # circuito sem T-gates: nada a destilar
+
+    for r in results:
+        if not r.feasible:
+            continue
+        try:
+            extra_qubits, n_factories, factory = magic_state_resources(
+                t_count=t_count,
+                p_phys=hardware.p_phys,
+                t_gate_ns=hardware.t_gate_ns,
+                target_t_state_error=p_L_target,
+                data_circuit_time_us=r.execution_time_us,
+                t_meas_ns=hardware.t_meas_ns,
+            )
+        except ValueError as e:
+            r.feasible = False
+            r.reason = f"destilação de estado mágico inviável: {e}"
+            continue
+
+        r.magic_state_qubits = extra_qubits
+        r.magic_state_factories = n_factories
+        r.magic_state_t_state_error = factory.output_error if factory else None
+        r.total_physical_qubits += extra_qubits
+        if factory:
+            r.execution_time_us = max(r.execution_time_us, factory.time_us)
+
+
 def compare(circuit, hardware_list: list[HardwareProfile],
-            fidelity_target: float = 0.99):
+            fidelity_target: float = 0.99,
+            model_magic_state_distillation: bool = False):
     """
     API principal: recebe circuito Qiskit + lista de hardwares,
     devolve dicionário hardware_name → [CodeResult].
@@ -371,6 +428,8 @@ def compare(circuit, hardware_list: list[HardwareProfile],
     profile = extract_circuit_profile(circuit)
     output = {"circuit_profile": profile, "results": {}, "hardware_profiles": {}}
     for hw in hardware_list:
-        output["results"][hw.name] = estimate(profile, hw, fidelity_target)
+        output["results"][hw.name] = estimate(
+            profile, hw, fidelity_target, model_magic_state_distillation
+        )
         output["hardware_profiles"][hw.name] = hw
     return output
