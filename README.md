@@ -74,8 +74,8 @@ sim = noise_model_from_ibm("ibm_brisbane", token="YOUR_IBM_TOKEN")
 |---|---|---|
 | Surface Code | $p_L \approx A(p/p_{th})^{(d+1)/2}$, $q=2d^2-1$, overhead $=d^3$ | Fowler et al., PRA 86, 032324 (2012) |
 | Floquet Code | $p_L \approx 0.07(p/p_{th})^{(d+1)/2}$, $q=4d^2+8(d-1)$, overhead $=\lfloor d/2\rfloor$ | Gidney & Fowler, arXiv:2202.11829 |
-| Bacon-Shor | $p_L \approx (p/p_{th})^d$, $q=d^2$ | Aliferis & Cross (2007) |
-| Steane [[7,1,3]] | $p_L \approx 21p^2$, $q=13$ | Steane, PRL 77, 793 (1996) |
+| Bacon-Shor | $p_L \approx (p/p_{th})^d$, $q=d^2$, overhead $=d\cdot2(d-1)$ | Aliferis & Cross, PRL 98, 220502 (2007); overhead: Li, Miller & Brown, arXiv:1804.01127 (2018) + Aliferis PhD thesis, quant-ph/0703230, p.93 |
+| Steane [[7,1,3]] | $p_L \approx 21p^2$, $q=13$, overhead $=6$ (fixo) | Steane, PRL 77, 793 (1996) |
 
 Thresholds are enforced: `p ≥ p_th` raises `ValueError` — no silent wrong results.
 
