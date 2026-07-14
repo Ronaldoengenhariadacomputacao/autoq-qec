@@ -29,9 +29,20 @@ class CalibratedHardware:
     def p_phys(self) -> float:
         return self.p_2q_mean
 
-    def t1_constraint(self, n_physical_gates: int, gate_overhead: float) -> dict:
-        """Verifica se o circuito QEC cabe dentro do T1."""
-        t_circuit_us = n_physical_gates * gate_overhead * self.t_2q_ns / 1000
+    def t1_constraint(self, n_physical_gates: int, gate_overhead: float,
+                       execution_time_us: float = None) -> dict:
+        """
+        Verifica se o circuito QEC cabe dentro do T1.
+        Por padrão recalcula o tempo a partir de n_physical_gates×gate_overhead
+        (comportamento antigo). Se `execution_time_us` for fornecido, usa esse
+        valor diretamente — necessário quando o tempo real inclui overhead
+        que gate_overhead não captura (ex.: destilação de estado mágico,
+        que pode alongar execution_time_us além do que N×gate_overhead prevê).
+        """
+        t_circuit_us = (
+            execution_time_us if execution_time_us is not None
+            else n_physical_gates * gate_overhead * self.t_2q_ns / 1000
+        )
         t1_us = self.T1_us
         ratio = t_circuit_us / t1_us
         return {

@@ -39,7 +39,10 @@ class CodeResult:
     qubits_per_logical: Optional[int]
     total_physical_qubits: Optional[int]
     gate_overhead_per_logical: Optional[float]
-    total_physical_gates: Optional[float]
+    total_physical_gates: Optional[float]  # portas do circuito de dados QEC apenas —
+                                            # NÃO inclui as portas internas das rodadas
+                                            # de destilação (magic_state_qubits/factories
+                                            # contam qubits e tempo da fábrica, não portas)
     execution_time_us: Optional[float]
     p_logical_achieved: Optional[float]
     fidelity_circuit: Optional[float]
@@ -414,8 +417,21 @@ def _apply_magic_state_distillation(results: list, circuit_profile: CircuitProfi
         r.magic_state_factories = n_factories
         r.magic_state_t_state_error = factory.output_error if factory else None
         r.total_physical_qubits += extra_qubits
+
         if factory:
-            r.execution_time_us = max(r.execution_time_us, factory.time_us)
+            old_time_us = r.execution_time_us
+            new_time_us = max(old_time_us, factory.time_us)
+            if new_time_us != old_time_us and r.fidelity_circuit is not None:
+                # fidelity_circuit já foi calculada com o decoherence_factor
+                # do tempo ANTIGO (antes de somar o tempo da fábrica) — sem
+                # isso, o tempo total cresceria mas a penalidade de T2 ficaria
+                # desatualizada, reabrindo o mesmo problema que o termo de
+                # decoerência foi criado pra resolver.
+                old_decoherence = _decoherence_factor(old_time_us, hardware.T2_us)
+                new_decoherence = _decoherence_factor(new_time_us, hardware.T2_us)
+                if old_decoherence > 0:
+                    r.fidelity_circuit = r.fidelity_circuit / old_decoherence * new_decoherence
+            r.execution_time_us = new_time_us
 
 
 def compare(circuit, hardware_list: list[HardwareProfile],

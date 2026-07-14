@@ -133,7 +133,7 @@ plot_tradeoff(result, output="tradeoff.png")  # log-log qubits × time, color = 
 ## Test
 
 ```bash
-pytest tests/ -v   # 79 tests, all verify physics not arithmetic
+pytest tests/ -v   # 81 tests, all verify physics not arithmetic
 ```
 
 ## What the tests check (unlike most QEC tools)

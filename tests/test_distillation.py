@@ -155,6 +155,59 @@ class TestEstimateIntegration(unittest.TestCase):
         r = next(x for x in results if x.code_name == "Surface Code" and x.feasible)
         self.assertIsNone(r.magic_state_qubits)
 
+    def test_fidelidade_reflete_tempo_de_destilacao(self):
+        """
+        Achado na auditoria pós-implementação: fidelity_circuit era calculada
+        ANTES do tempo da fábrica ser somado a execution_time_us, então o
+        termo de decoerência T2 ficava desatualizado (tempo crescia, mas a
+        penalidade de fidelidade não refletia isso). Testa que a correção
+        se mantém: quando a fábrica alonga o tempo, a fidelidade cai.
+        """
+        from autoq_qec.qec_estimator import extract_circuit_profile, estimate, HardwareProfile
+        qc = self._circuit_com_t_gates()
+        prof = extract_circuit_profile(qc)
+        hw = HardwareProfile("test", t_gate_ns=50, p_phys=0.0001, topology="grid",
+                              t_meas_ns=100, T2_us=50.0)
+
+        sem = estimate(prof, hw, fidelity_target=0.99)
+        com = estimate(prof, hw, fidelity_target=0.99, model_magic_state_distillation=True)
+        r_sem = next(x for x in sem if x.code_name == "Surface Code" and x.feasible)
+        r_com = next(x for x in com if x.code_name == "Surface Code" and x.feasible)
+
+        self.assertGreater(r_com.execution_time_us, r_sem.execution_time_us,
+            "pré-condição do teste: a fábrica precisa alongar o tempo")
+        self.assertLess(r_com.fidelity_circuit, r_sem.fidelity_circuit,
+            "tempo maior com T2 finito deve reduzir fidelidade — decoerência desatualizada")
+
+    def test_filtro_t1_usa_tempo_real_com_destilacao(self):
+        """
+        Achado na mesma auditoria: t1_constraint() recalculava o tempo
+        internamente a partir de n_physical_gates×gate_overhead, ignorando
+        o tempo real (que inclui a fábrica de destilação). Testa direto
+        que passar execution_time_us muda o resultado de feasible —
+        prova que o parâmetro novo é respeitado, não ignorado.
+        """
+        from autoq_qec.real_hardware import CalibratedHardware
+
+        cal = CalibratedHardware(
+            name="synthetic", n_qubits=100, p_1q_mean=0.0001, p_2q_mean=0.0001,
+            p_2q_worst=0.0002, t_1q_ns=50, t_2q_ns=50, T1_us=20.0, T2_us=20.0,
+            readout_error=0.001, topology="grid", source="teste",
+        )
+
+        # Comportamento antigo (sem override): recalcula a partir de N*overhead,
+        # que dá um tempo pequeno o bastante pra caber no T1.
+        check_antigo = cal.t1_constraint(n_physical_gates=10, gate_overhead=5)
+        self.assertTrue(check_antigo["feasible"])
+
+        # Com o tempo real (ex.: incluindo fábrica de destilação, bem maior
+        # que N*overhead sozinho previa) — deve passar a ser inviável.
+        check_com_destilacao = cal.t1_constraint(
+            n_physical_gates=10, gate_overhead=5, execution_time_us=1000.0,  # >> T1=20us
+        )
+        self.assertFalse(check_com_destilacao["feasible"])
+        self.assertEqual(check_com_destilacao["t_circuit_us"], 1000.0)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

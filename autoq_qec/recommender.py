@@ -79,6 +79,11 @@ def rank(compare_result: dict,
                 check = cal.t1_constraint(
                     n_physical_gates=prof.n_physical_gates,
                     gate_overhead=r.gate_overhead_per_logical,
+                    # Usa o tempo real (inclui overhead de destilação de
+                    # estado mágico, se model_magic_state_distillation=True
+                    # foi usado em estimate()) em vez de recalcular só a
+                    # partir de N×gate_overhead, que ignoraria esse tempo.
+                    execution_time_us=r.execution_time_us,
                 )
                 if not check["feasible"]:
                     continue
