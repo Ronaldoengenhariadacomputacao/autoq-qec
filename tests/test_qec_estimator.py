@@ -78,6 +78,17 @@ class TestBaconShorModel(unittest.TestCase):
         d, *_ = _bacon_shor_model(0.0001, 1e-2)
         self.assertGreaterEqual(d, 2)
 
+    def test_cycles_e_d_rodadas_vezes_2d_menos_2(self):
+        """
+        Regressão: cycles_per_gate deve ser d rodadas de extração de
+        síndrome × 2(d-1) medições de gauge por rodada (Li, Miller &
+        Brown 2018, arXiv:1804.01127 + Aliferis PhD thesis p.93), não
+        apenas 2(d-1) de uma única rodada — mesmo padrão do bug d²→d³
+        já corrigido no Surface Code.
+        """
+        d, _, cycles, _ = _bacon_shor_model(0.001, 1e-6)
+        self.assertEqual(cycles, d * 2 * (d - 1))
+
 
 class TestSteaneModel(unittest.TestCase):
 

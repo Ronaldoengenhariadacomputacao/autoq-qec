@@ -85,13 +85,24 @@ def _bacon_shor_model(p_phys: float, p_L_target: float,
     """
     Aliferis & Cross 2007: p_L ≈ (p/p_th)^d para [[d²,1,d]]
     threshold ~0.7-1.1% dependendo do modelo; usamos 0.8% (conservador)
+
+    Li, Miller & Brown 2018 (arXiv:1804.01127) mostram que uma única rodada
+    de extração de síndrome com ancilla nua mede os 2(d-1) estabilizadores
+    de forma tolerante a falhas (sem redundância extra dentro da rodada).
+    Mas, como no Surface Code, uma operação lógica precisa repetir a
+    extração de síndrome ~d vezes para preservar a proteção da distância
+    do código durante o gate (mesma convenção-padrão de arquitetura FT;
+    confirmado também na tese do Aliferis, quant-ph/0703230, p.93: as
+    medições "não podem, em geral, ser confiáveis a menos que algumas
+    sejam repetidas um número de vezes dependendo da distância do código").
+    Custo total por porta lógica = d rodadas × 2(d-1) medições/rodada.
     """
     if p_phys >= p_th:
         raise ValueError(f"p_phys={p_phys:.4f} ≥ threshold_BS={p_th}: não converge")
     d = max(2, math.ceil(math.log(p_L_target) / math.log(p_phys / p_th)))
     p_L = (p_phys / p_th) ** d
     q_per_logical = d**2
-    cycles_per_gate = 2 * (d - 1)  # medições de gauge por ciclo
+    cycles_per_gate = d * 2 * (d - 1)  # d rodadas × 2(d-1) medições de gauge por rodada
     return d, q_per_logical, cycles_per_gate, p_L
 
 

@@ -8,9 +8,9 @@ Given any Qiskit circuit and a set of hardware profiles, AutoQ QEC returns a ran
 
 ## What this does that nothing else does
 
-| Tool | Multi-code | Arbitrary circuit | Analytic model | Hardware-agnostic |
+| Tool | Multi-code | Arbitrary circuit | Analytic model | Qiskit-native |
 |---|---|---|---|---|
-| Azure Resource Estimator | ❌ Surface Code only | ✅ | ✅ | ❌ Azure only |
+| Azure Resource Estimator | ✅ Surface + Floquet + custom | ⚠️ Q#/QIR only, not Qiskit | ✅ | ❌ |
 | stim | ✅ | ❌ needs rewrite | ❌ simulation | ❌ |
 | qiskit-qec | ✅ | ❌ no estimator | ❌ | ✅ |
 | **AutoQ QEC** | ✅ | ✅ | ✅ | ✅ |
