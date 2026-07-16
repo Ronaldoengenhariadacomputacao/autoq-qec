@@ -171,6 +171,18 @@ def extract_circuit_profile(circuit) -> CircuitProfile:
     """
     from qiskit import transpile
 
+    if circuit.num_parameters > 0:
+        raise ValueError(
+            f"Circuito tem {circuit.num_parameters} parâmetro(s) não vinculado(s) "
+            f"({[str(p) for p in list(circuit.parameters)[:3]]}"
+            f"{', ...' if circuit.num_parameters > 3 else ''}). "
+            "Ansätze variacionais (RealAmplitudes, EfficientSU2, QAOAAnsatz, etc.) "
+            "precisam ter os parâmetros vinculados a valores numéricos antes da "
+            "estimativa de recursos — o T-count depende dos ângulos de rotação reais, "
+            "que não existem enquanto o circuito for simbólico. "
+            "Use circuit.assign_parameters(valores) antes de chamar compare()/extract_circuit_profile()."
+        )
+
     # Perfil lógico
     n_q = circuit.num_qubits
     ops_logical = {k: v for k, v in circuit.count_ops().items()

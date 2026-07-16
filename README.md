@@ -56,6 +56,19 @@ for r in recommendations[:3]:
           f"fidelity={r.fidelity_circuit:.4f}")
 ```
 
+**Variational circuits (VQE, QAOA, etc.) must have parameters bound first.** `RealAmplitudes`, `EfficientSU2`, `QAOAAnsatz`, and similar templates carry symbolic parameters until you call `assign_parameters()` — T-count depends on the actual rotation angles, which don't exist in a symbolic circuit. Passing an unbound circuit raises a clear `ValueError` (as of 3.2.2):
+
+```python
+from qiskit.circuit.library import RealAmplitudes
+import numpy as np
+
+template = RealAmplitudes(4, reps=2).decompose()
+rng = np.random.default_rng(42)
+circuit = template.assign_parameters(rng.uniform(0, 2*np.pi, template.num_parameters))
+
+result = compare(circuit, hardwares, fidelity_target=0.99)  # now works
+```
+
 ## With real IBM calibration data
 
 ```python
@@ -142,7 +155,8 @@ pytest tests/ -v   # 81 tests, all verify physics not arithmetic
 - `d` is always odd for Surface Code (rotated lattice requirement)
 - `p_L ≤ p_L_target` guaranteed after distance selection
 - Noisier hardware requires larger `d` (monotonicity)
-- Circuit with 0 gates raises `ValueError` (destroyed by transpiler)
+- `estimate()` raises `ValueError` on a zero-gate `CircuitProfile` (e.g. destroyed by transpiler) — not `extract_circuit_profile()` itself, which returns a valid zero-gate profile for an actually empty circuit
+- `extract_circuit_profile()` raises `ValueError` on circuits with unbound parameters — see "Variational circuits" above
 - Fidelity scales correctly with `t_gate`
 
 ## Author

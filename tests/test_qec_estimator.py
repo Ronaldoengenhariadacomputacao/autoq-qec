@@ -194,5 +194,124 @@ class TestEstimate(unittest.TestCase):
             msg=f"Esperado ratio=10, obtido {ratio:.4f}")
 
 
+class TestParametrosNaoVinculados(unittest.TestCase):
+    """
+    v3.2.2: extract_circuit_profile() deve rejeitar circuitos com parâmetros
+    simbólicos (ansätze variacionais não vinculados) com ValueError claro,
+    em vez de deixar vazar um TranspilerError bruto do Qiskit lá de dentro
+    de _count_t_gates() (não há ângulo numérico pra síntese Solovay-Kitaev
+    aproximar quando o parâmetro ainda é uma variável).
+    """
+
+    def test_realamplitudes_nao_vinculado_levanta_valueerror(self):
+        from qiskit.circuit.library import RealAmplitudes
+        circ = RealAmplitudes(4, reps=2).decompose()
+        self.assertGreater(circ.num_parameters, 0)
+        with self.assertRaises(ValueError):
+            extract_circuit_profile(circ)
+
+    def test_qaoaansatz_nao_vinculado_levanta_valueerror(self):
+        from qiskit.circuit.library import QAOAAnsatz
+        from qiskit.quantum_info import SparsePauliOp
+        ham = SparsePauliOp.from_list([("ZZII", 1.0), ("IZZI", 1.0)])
+        circ = QAOAAnsatz(ham, reps=1).decompose()
+        self.assertGreater(circ.num_parameters, 0)
+        with self.assertRaises(ValueError):
+            extract_circuit_profile(circ)
+
+    def test_realamplitudes_vinculado_funciona_normalmente(self):
+        import numpy as np
+        from qiskit.circuit.library import RealAmplitudes
+        tmpl = RealAmplitudes(4, reps=2).decompose()
+        rng = np.random.default_rng(42)
+        circ = tmpl.assign_parameters(rng.uniform(0, 2*np.pi, tmpl.num_parameters))
+        self.assertEqual(circ.num_parameters, 0)
+        prof = extract_circuit_profile(circ)
+        self.assertEqual(prof.n_logical_qubits, 4)
+        self.assertGreater(prof.t_count, 0,
+            "Rotação de ângulo genérico deve custar T-gates reais, não zero")
+
+    def test_circuito_com_parameter_individual_vinculado_funciona(self):
+        """Mesmo teste, mas construindo o circuito manualmente com Parameter
+        (não via classe de biblioteca), pra garantir que a checagem é sobre
+        circuit.num_parameters, não específica de RealAmplitudes/QAOAAnsatz."""
+        from qiskit.circuit import Parameter
+        theta = Parameter("theta")
+        circ = QuantumCircuit(2)
+        circ.h(0)
+        circ.ry(theta, 1)
+        circ.cx(0, 1)
+
+        with self.assertRaises(ValueError):
+            extract_circuit_profile(circ)
+
+        circ_vinculado = circ.assign_parameters({theta: 0.73})
+        prof = extract_circuit_profile(circ_vinculado)
+        self.assertEqual(prof.n_logical_qubits, 2)
+
+
+class TestCasosDeLimite(unittest.TestCase):
+    """
+    Regressão para casos-limite verificados manualmente durante a
+    investigação da v3.2.2, mas que ainda não tinham teste formal —
+    protegem contra alguém "consertar" um desses casos sem querer no futuro.
+    """
+
+    def test_circuito_realmente_vazio_nao_crasha(self):
+        """
+        extract_circuit_profile() num QuantumCircuit sem nenhuma porta
+        deve devolver um perfil válido com contagens zeradas — não deve
+        levantar erro aqui. (Quem levanta ValueError para 0 portas é
+        estimate(), mais adiante no pipeline — ver test_circuito_vazio_levanta_erro.
+        Este teste garante que extract_circuit_profile() continua sendo o
+        lugar "silencioso" da checagem, não duplicando o erro cedo demais.)
+        """
+        qc = QuantumCircuit(2)  # 2 qubits, zero portas
+        prof = extract_circuit_profile(qc)
+        self.assertEqual(prof.n_logical_qubits, 2)
+        self.assertEqual(prof.n_physical_gates, 0)
+        self.assertEqual(prof.t_count, 0)
+
+    def test_unitarygate_customizada_decompoe_sem_crash(self):
+        """
+        Uma porta UnitaryGate com matriz numérica arbitrária (não simbólica)
+        deve ser sintetizada normalmente pelo transpile(), diferente do caso
+        de parâmetro simbólico (Parameter/RealAmplitudes não vinculado) —
+        a distinção importante é "tem número concreto" vs "é uma variável",
+        não "é uma porta nomeada vs uma matriz". Seed fixa para reprodutibilidade.
+        """
+        from qiskit.circuit.library import UnitaryGate
+        from qiskit.quantum_info import random_unitary
+
+        qc = QuantumCircuit(2)
+        U = random_unitary(4, seed=7)
+        qc.append(UnitaryGate(U), [0, 1])
+
+        prof = extract_circuit_profile(qc)
+        self.assertEqual(prof.n_logical_qubits, 2)
+        self.assertGreaterEqual(prof.t_count, 0)
+
+    def test_circuito_grande_nao_trava(self):
+        """
+        QFT(50) não deve travar por tempo de execução do transpile —
+        teto generoso (30s) de propósito: isso é uma checagem sanitária
+        contra regressão catastrófica de performance (ex.: alguém trocar
+        optimization_level ou desabilitar uma otimização que hoje evita
+        explosão combinatória), não um benchmark de precisão. Não deve
+        falhar por variação normal de velocidade de máquina/CI.
+        """
+        import time
+        from qiskit.circuit.library import QFT
+
+        qc = QFT(50).decompose()
+        inicio = time.time()
+        prof = extract_circuit_profile(qc)
+        duracao = time.time() - inicio
+
+        self.assertEqual(prof.n_logical_qubits, 50)
+        self.assertLess(duracao, 30.0,
+            f"QFT(50) levou {duracao:.1f}s — possível regressão de performance")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
