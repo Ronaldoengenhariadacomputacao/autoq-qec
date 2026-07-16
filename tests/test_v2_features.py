@@ -117,7 +117,7 @@ class TestFix3T1Filter(unittest.TestCase):
         for _ in range(50):
             qc.h(0); qc.cx(0, 1); qc.cx(1, 2)
         h2_hw = HardwareProfile(
-            "Quantinuum_H2", t_gate_ns=1e5, p_phys=0.00029, topology="all-to-all"
+            "Quantinuum_H2", t_gate_ns=1e5, p_phys=0.0015, topology="all-to-all"
         )
         result = compare(qc, [h2_hw], fidelity_target=0.99)
         recs = rank(result, hardware_calibrations=HARDWARE_PROFILES)
@@ -290,7 +290,7 @@ class TestFeature8Visualizer(unittest.TestCase):
         import tempfile, os
         qc = QuantumCircuit(2); qc.h(0); qc.cx(0, 1)
         hw = [HardwareProfile("IBM", 391, 0.001, "heavy-hex"),
-              HardwareProfile("H2", 1e5, 0.00029, "all-to-all")]
+              HardwareProfile("H2", 1e5, 0.0015, "all-to-all")]
         result = compare(qc, hw, 0.99)
         with tempfile.TemporaryDirectory() as tmp:
             output = os.path.join(tmp, "test.png")

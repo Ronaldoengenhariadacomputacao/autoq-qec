@@ -91,16 +91,19 @@ HARDWARE_PROFILES = {
     "Quantinuum_H2": CalibratedHardware(
         name="Quantinuum H2-1",
         n_qubits=56,
-        p_1q_mean=3.8e-5,
-        p_2q_mean=2.9e-4,    # ZZ gate
-        p_2q_worst=5.0e-4,
+        p_1q_mean=3.0e-5,    # infidelidade típica de porta 1 qubit
+        p_2q_mean=1.5e-3,    # ZZ gate — infidelidade típica (Table 1)
+        p_2q_worst=3.0e-3,   # infidelidade máxima (Table 1)
         t_1q_ns=10e3,        # 10 µs
         t_2q_ns=100e3,       # 100 µs (íon aprisionado)
         T1_us=1e7,           # horas — sem limite prático de T1
         T2_us=1e5,           # ~0.1 s
-        readout_error=0.0015,
+        readout_error=0.0015,  # SPAM típico 1.5e-3 (Table 1) — já batia
         topology="all-to-all",
-        source="Quantinuum H-Series specs; PRX Quantum 4, 020312 (2023)",
+        source="Quantinuum System Model H2 Product Data Sheet, v1.4, 4 Jun 2024, Table 1 "
+               "(https://docs.quantinuum.com/systems/data_sheets/) — corrigido nesta sessão: "
+               "p_2q_mean/p_2q_worst antigos (2.9e-4/5.0e-4) vinham subestimados ~5x vs. o "
+               "valor oficial típico/máximo (1.5e-3/3.0e-3); readout_error já batia.",
     ),
 
     "IonQ_Aria": CalibratedHardware(

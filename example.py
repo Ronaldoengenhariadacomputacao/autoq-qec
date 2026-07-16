@@ -20,7 +20,7 @@ for i in range(2):
 hardwares = [
     HardwareProfile("IBM_Eagle",     t_gate_ns=391,   p_phys=0.0062,  topology="heavy-hex"),
     HardwareProfile("IBM_Heron",     t_gate_ns=100,   p_phys=0.003,   topology="heavy-hex"),
-    HardwareProfile("Quantinuum_H2", t_gate_ns=100e3, p_phys=0.00029, topology="all-to-all"),
+    HardwareProfile("Quantinuum_H2", t_gate_ns=100e3, p_phys=0.0015,  topology="all-to-all"),
     HardwareProfile("IonQ_Aria",     t_gate_ns=600e3, p_phys=0.0055,  topology="all-to-all"),
 ]
 

@@ -40,7 +40,7 @@ circuit.h(0); circuit.cx(0,1); circuit.cx(1,2); circuit.cx(2,3)
 hardwares = [
     HardwareProfile("IBM_Eagle",     t_gate_ns=391,   p_phys=0.0062, topology="heavy-hex", readout_error=0.014),
     HardwareProfile("IBM_Heron",     t_gate_ns=100,   p_phys=0.003,  topology="heavy-hex", readout_error=0.009),
-    HardwareProfile("Quantinuum_H2", t_gate_ns=100e3, p_phys=0.00029,topology="all-to-all", readout_error=0.0015),
+    HardwareProfile("Quantinuum_H2", t_gate_ns=100e3, p_phys=0.0015, topology="all-to-all", readout_error=0.0015),
 ]
 
 # One call — returns all codes × all hardwares
