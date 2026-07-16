@@ -14,7 +14,7 @@ pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
-All 22 tests must pass before any PR is merged.
+All tests must pass before any PR is merged.
 
 ## Adding a new QEC code
 
