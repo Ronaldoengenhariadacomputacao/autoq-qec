@@ -164,10 +164,16 @@ def _count_t_gates(circuit) -> int:
     return ops.get('t', 0) + ops.get('tdg', 0)
 
 
-def extract_circuit_profile(circuit) -> CircuitProfile:
+def extract_circuit_profile(circuit, coupling_map=None) -> CircuitProfile:
     """
     Extrai métricas reais de um QuantumCircuit Qiskit.
     Transpila para base {CX, U} para obter contagem física real.
+
+    coupling_map (opcional): restrição de conectividade real do hardware
+    (qiskit.transpiler.CouplingMap). Se omitido (padrão), assume
+    conectividade total (all-to-all) — sem custo de SWAP para rotear
+    qubits não-vizinhos. Ver compare(), que passa isso automaticamente
+    por hardware com base em HardwareProfile.topology (v3.2.4).
     """
     from qiskit import transpile
 
@@ -189,8 +195,9 @@ def extract_circuit_profile(circuit) -> CircuitProfile:
                    if k not in ('measure', 'barrier', 'reset')}
     n_logical = sum(ops_logical.values())
 
-    # Perfil físico — transpile para base universal sem backend específico
-    phys = transpile(circuit, basis_gates=['cx', 'u'],
+    # Perfil físico — transpile para base universal, com coupling_map real
+    # do hardware se informado (insere SWAPs reais para qubits não-vizinhos).
+    phys = transpile(circuit, basis_gates=['cx', 'u'], coupling_map=coupling_map,
                      optimization_level=3, seed_transpiler=42)
     ops_phys = {k: v for k, v in phys.count_ops().items()
                 if k not in ('measure', 'barrier', 'reset')}
@@ -457,18 +464,61 @@ def _apply_magic_state_distillation(results: list, circuit_profile: CircuitProfi
             r.execution_time_us = new_time_us
 
 
+def _coupling_map_for_topology(topology: str, n_qubits: int):
+    """
+    Constrói um CouplingMap real do Qiskit a partir do campo topology de um
+    HardwareProfile, para modelar custo de roteamento (SWAP) em hardware de
+    conectividade limitada (v3.2.4 — antes, topology era lido em nenhum
+    lugar e todo circuito era transpilado como se o hardware fosse
+    all-to-all, mesmo quando heavy-hex/linear/grid era informado).
+
+    Retorna None para "all-to-all" (sem restrição) ou topologias
+    desconhecidas — nesse caso o comportamento antigo (sem custo de SWAP)
+    é preservado, por segurança, em vez de falhar.
+    """
+    if topology == "all-to-all" or n_qubits <= 1:
+        return None
+
+    from qiskit.transpiler import CouplingMap
+
+    if topology == "linear":
+        return CouplingMap.from_line(n_qubits)
+    if topology in ("grid", "grid-2d"):  # "grid-2d" usado em Google_Willow
+        cols = math.ceil(math.sqrt(n_qubits))
+        rows = math.ceil(n_qubits / cols)
+        return CouplingMap.from_grid(rows, cols)
+    if topology == "heavy-hex":
+        d = 3  # distância mínima válida (ímpar) do heavy-hex
+        while (5 * d**2 - 2 * d - 1) // 2 < n_qubits:
+            d += 2
+        return CouplingMap.from_heavy_hex(d)
+    return None
+
+
 def compare(circuit, hardware_list: list[HardwareProfile],
             fidelity_target: float = 0.99,
             model_magic_state_distillation: bool = False):
     """
     API principal: recebe circuito Qiskit + lista de hardwares,
     devolve dicionário hardware_name → [CodeResult].
+
+    Cada hardware é transpilado com o coupling_map real da sua topology
+    (v3.2.4) — hardware de conectividade limitada (heavy-hex, linear, grid)
+    paga o custo real de SWAPs para rotear qubits não-vizinhos, em vez de
+    assumir all-to-all para todo mundo. output["circuit_profile"] continua
+    sendo o perfil topology-agnostic (all-to-all), mantido por compatibilidade
+    e para uso exibicional; as estimativas em output["results"] usam o
+    perfil específico de cada hardware internamente.
     """
     profile = extract_circuit_profile(circuit)
     output = {"circuit_profile": profile, "results": {}, "hardware_profiles": {}}
     for hw in hardware_list:
+        hw_profile = profile
+        coupling_map = _coupling_map_for_topology(hw.topology, circuit.num_qubits)
+        if coupling_map is not None:
+            hw_profile = extract_circuit_profile(circuit, coupling_map=coupling_map)
         output["results"][hw.name] = estimate(
-            profile, hw, fidelity_target, model_magic_state_distillation
+            hw_profile, hw, fidelity_target, model_magic_state_distillation
         )
         output["hardware_profiles"][hw.name] = hw
     return output

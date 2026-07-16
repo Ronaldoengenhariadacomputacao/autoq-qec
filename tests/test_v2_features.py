@@ -12,7 +12,7 @@ from autoq_qec.qec_estimator import (
     _surface_code_model, _floquet_code_model,
     HardwareProfile,
 )
-from autoq_qec.recommender import rank
+from autoq_qec.recommender import rank, rank_by_metric
 from autoq_qec.real_hardware import HARDWARE_PROFILES
 from autoq_qec.algorithm_estimator import AlgorithmEstimator
 from unittest.mock import patch, MagicMock
@@ -139,6 +139,33 @@ class TestFix3T1Filter(unittest.TestCase):
         recs = rank(result, hardware_calibrations=None)
         self.assertGreater(len(recs), 0)
 
+    def test_t1_direto_no_hardwareprofile_e_respeitado(self):
+        """
+        v3.2.4: HardwareProfile.T1_us definido diretamente pelo usuário (sem
+        casar com nenhuma CalibratedHardware de hardware_calibrations) deve
+        ser usado para filtrar combinações que violem T1 -- antes esse campo
+        era lido em nenhum lugar, ficando puramente decorativo. O filtro vale
+        sempre que T1_us for informado, independente de hardware_calibrations
+        ser passado (se o usuário disse qual é o T1, deve valer sempre).
+        """
+        qc = QuantumCircuit(2); qc.h(0); qc.cx(0, 1)
+
+        hw_sem_t1 = HardwareProfile("SemT1", t_gate_ns=50, p_phys=0.001, topology="grid")
+        result_sem_t1 = compare(qc, [hw_sem_t1], fidelity_target=0.99)
+        recs_sem_t1 = rank(result_sem_t1)
+
+        hw_com_t1_curto = HardwareProfile("ComT1Curto", t_gate_ns=50, p_phys=0.001,
+                                           topology="grid", T1_us=1.0)
+        result_com_t1 = compare(qc, [hw_com_t1_curto], fidelity_target=0.99)
+        recs_com_t1 = rank(result_com_t1)
+
+        self.assertGreater(len(recs_sem_t1), len(recs_com_t1),
+            "T1_us=1us deveria excluir combinacoes que o mesmo circuito, "
+            "sem T1_us informado, aceitaria")
+        for r in recs_com_t1:
+            self.assertLess(r.execution_time_us / hw_com_t1_curto.T1_us, 0.5,
+                f"{r.hardware}/{r.code} deveria ter sido excluido por violar T1")
+
 
 class TestFeature4FloquetCode(unittest.TestCase):
 
@@ -264,15 +291,24 @@ class TestFeature56Hardware(unittest.TestCase):
         w = HARDWARE_PROFILES["Google_Willow"]
         self.assertEqual(w.n_qubits, 105)
         self.assertLess(w.p_2q_mean, 0.005)    # paper: ~0.3%
-        self.assertGreater(w.T1_us, 80)         # paper: ~100µs
+        # T1 real reportado no paper (Acharya et al., Nature 638, 2025) é
+        # 68us, não ~100us como o comentario antigo assumia (corrigido nesta
+        # sessão, tanto aqui quanto no CalibratedHardware).
+        self.assertGreater(w.T1_us, 50)         # paper: ~68µs
         self.assertLessEqual(w.t_2q_ns, 50)     # paper: ~25ns
 
     def test_heron_r3_melhor_que_r2(self):
-        """Heron r3 deve ter menor p_2q e maior velocidade que Heron r2."""
+        """
+        Heron r3 deve ter menor erro de porta de 2 qubits que r2 -- essa é
+        a melhoria consistente entre gerações. Velocidade de porta (t_2q_ns)
+        NÃO é testada aqui: não melhora estritamente a cada geração (às
+        vezes se troca velocidade por fidelidade), e dados reais ao vivo
+        confirmaram isso nesta sessão (r2 medido em ibm_fez saiu mais rápido
+        que o t_2q_ns oficialmente reportado para r3).
+        """
         r2 = HARDWARE_PROFILES["IBM_Heron_r2"]
         r3 = HARDWARE_PROFILES["IBM_Heron_r3"]
         self.assertLess(r3.p_2q_mean, r2.p_2q_mean)
-        self.assertLessEqual(r3.t_2q_ns, r2.t_2q_ns)
 
     def test_willow_integravel_no_compare(self):
         """Willow deve funcionar como hardware no compare()."""
@@ -516,6 +552,94 @@ class TestDecoherenceFidelity(unittest.TestCase):
         r = self._surface(hw, qc)
         self.assertGreaterEqual(r.fidelity_circuit, 0.0)
         self.assertLessEqual(r.fidelity_circuit, 1.0)
+
+
+class TestInvarianteDestilacao(unittest.TestCase):
+    """
+    Ativar model_magic_state_distillation=True adiciona um custo real
+    (fábricas de estado mágico) -- isso nunca deveria diminuir qubits
+    físicos totais nem tempo de execução em relação ao mesmo circuito
+    sem a flag. Verificado nesta sessão como parte da auditoria de viés
+    (0 violações em 12 combinações circuito×fidelidade×hardware).
+    """
+
+    def test_destilacao_nunca_diminui_recursos(self):
+        qc = QuantumCircuit(2)
+        qc.h(0); qc.t(0); qc.t(0); qc.cx(0, 1); qc.t(1)
+        hw = HardwareProfile("Teste", t_gate_ns=100, p_phys=0.001, topology="all-to-all")
+
+        sem = compare(qc, [hw], fidelity_target=0.99, model_magic_state_distillation=False)
+        com = compare(qc, [hw], fidelity_target=0.99, model_magic_state_distillation=True)
+
+        for r_sem, r_com in zip(sem["results"]["Teste"], com["results"]["Teste"]):
+            if not r_sem.feasible or not r_com.feasible:
+                continue
+            self.assertGreaterEqual(r_com.total_physical_qubits, r_sem.total_physical_qubits,
+                f"{r_sem.code_name}: destilação diminuiu qubits físicos")
+            self.assertGreaterEqual(r_com.execution_time_us, r_sem.execution_time_us,
+                f"{r_sem.code_name}: destilação diminuiu tempo de execução")
+
+
+class TestRankByMetric(unittest.TestCase):
+    """
+    rank_by_metric() complementa rank(): quando uma combinação domina todos
+    os critérios ao mesmo tempo (dominância de Pareto), nenhum peso em
+    rank() consegue trocar o "#1" -- rank_by_metric() mostra o melhor de
+    cada critério isoladamente, revelando trade-offs que ficam escondidos
+    atrás de um único score ponderado.
+    """
+
+    def _qft6(self):
+        import math
+        qc = QuantumCircuit(6)
+        for i in range(6):
+            qc.h(i)
+            for j in range(i + 1, 6):
+                qc.cp(math.pi / 2**(j - i), j, i)
+        return qc
+
+    def test_retorna_as_tres_chaves(self):
+        qc = QuantumCircuit(2); qc.h(0); qc.cx(0, 1)
+        hw = HardwareProfile("Teste", t_gate_ns=100, p_phys=0.001, topology="all-to-all")
+        result = compare(qc, [hw], fidelity_target=0.99)
+        por_metrica = rank_by_metric(result)
+        self.assertEqual(set(por_metrica.keys()), {"qubits", "tempo", "fidelidade"})
+
+    def test_cada_lista_esta_ordenada_pela_propria_metrica(self):
+        qc = QuantumCircuit(2); qc.h(0); qc.cx(0, 1)
+        hw = HardwareProfile("Teste", t_gate_ns=100, p_phys=0.001, topology="all-to-all")
+        result = compare(qc, [hw], fidelity_target=0.99)
+        por_metrica = rank_by_metric(result)
+
+        qubits_vals = [r.total_physical_qubits for r in por_metrica["qubits"]]
+        self.assertEqual(qubits_vals, sorted(qubits_vals))
+
+        tempo_vals = [r.execution_time_us for r in por_metrica["tempo"]]
+        self.assertEqual(tempo_vals, sorted(tempo_vals))
+
+        fid_vals = [r.fidelity_circuit for r in por_metrica["fidelidade"]]
+        self.assertEqual(fid_vals, sorted(fid_vals, reverse=True))
+
+    def test_revela_trade_off_escondido_pelo_rank_ponderado(self):
+        """
+        Regressão do achado desta sessão: um circuito onde os 5 presets de
+        peso do rank() convergem pro mesmo #1 (dominância de Pareto) ainda
+        assim tem vencedores DIFERENTES por métrica isolada -- prova que
+        rank_by_metric() revela informação que rank() sozinho esconde.
+        """
+        qc = self._qft6()
+        hardwares = [
+            HardwareProfile("IBM_Eagle", t_gate_ns=391, p_phys=0.0062, topology="heavy-hex"),
+            HardwareProfile("IBM_Heron", t_gate_ns=100, p_phys=0.003, topology="heavy-hex"),
+            HardwareProfile("Quantinuum_H2", t_gate_ns=100e3, p_phys=0.0015, topology="all-to-all"),
+        ]
+        result = compare(qc, hardwares, fidelity_target=0.999)
+        por_metrica = rank_by_metric(result)
+
+        vencedores = {m: (lista[0].hardware, lista[0].code) for m, lista in por_metrica.items()}
+        self.assertGreater(len(set(vencedores.values())), 1,
+            "Esperava vencedores diferentes por métrica isolada neste circuito "
+            f"(achado nesta sessão) — obteve: {vencedores}")
 
 
 if __name__ == "__main__":

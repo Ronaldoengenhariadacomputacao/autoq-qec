@@ -63,30 +63,40 @@ def rank(compare_result: dict,
     candidatos = []
 
     for hw_name, code_results in compare_result["results"].items():
+        hw = hardware_profiles.get(hw_name)
         cal = None
-        if hardware_calibrations:
-            hw = hardware_profiles.get(hw_name)
-            if hw is not None:
-                cal = _find_calibration(
-                    hw_name, hw.t_gate_ns, hw.p_phys, hardware_calibrations
-                )
+        if hardware_calibrations and hw is not None:
+            cal = _find_calibration(
+                hw_name, hw.t_gate_ns, hw.p_phys, hardware_calibrations
+            )
 
         for r in code_results:
             if not r.feasible:
                 continue
 
-            if cal is not None and r.gate_overhead_per_logical:
-                check = cal.t1_constraint(
-                    n_physical_gates=prof.n_physical_gates,
-                    gate_overhead=r.gate_overhead_per_logical,
-                    # Usa o tempo real (inclui overhead de destilação de
-                    # estado mágico, se model_magic_state_distillation=True
-                    # foi usado em estimate()) em vez de recalcular só a
-                    # partir de N×gate_overhead, que ignoraria esse tempo.
-                    execution_time_us=r.execution_time_us,
-                )
-                if not check["feasible"]:
-                    continue
+            if r.gate_overhead_per_logical:
+                if cal is not None:
+                    check = cal.t1_constraint(
+                        n_physical_gates=prof.n_physical_gates,
+                        gate_overhead=r.gate_overhead_per_logical,
+                        # Usa o tempo real (inclui overhead de destilação de
+                        # estado mágico, se model_magic_state_distillation=True
+                        # foi usado em estimate()) em vez de recalcular só a
+                        # partir de N×gate_overhead, que ignoraria esse tempo.
+                        execution_time_us=r.execution_time_us,
+                    )
+                    if not check["feasible"]:
+                        continue
+                elif hw is not None and hw.T1_us is not None:
+                    # Nenhuma CalibratedHardware casada (hardware_calibrations
+                    # não informado, ou sem correspondência numérica) -- mas
+                    # o próprio HardwareProfile do usuário já traz T1_us.
+                    # Checar isso diretamente em vez de ignorar silenciosamente
+                    # (bug corrigido na v3.2.4: T1_us de HardwareProfile nunca
+                    # era lido em lugar nenhum).
+                    ratio = r.execution_time_us / hw.T1_us
+                    if ratio >= 0.5:
+                        continue
 
             candidatos.append((hw_name, r))
 
@@ -172,3 +182,32 @@ def print_report(compare_result: dict, recommendations: list[Recommendation]):
               f"{best.execution_time_us:.2f} µs | "
               f"fidelidade {best.fidelity_circuit:.4f}")
         print(f"  → Gargalo principal: {best.bottleneck}")
+
+
+def rank_by_metric(compare_result: dict, hardware_calibrations: dict = None
+                    ) -> dict[str, list[Recommendation]]:
+    """
+    Rankeia cada métrica isoladamente (qubits, tempo, fidelidade), sem
+    combinar num único score ponderado. Complementa rank(): quando uma
+    combinação domina todos os critérios ao mesmo tempo (dominância de
+    Pareto), nenhum peso em rank() consegue trocar o "#1" — essa função
+    mostra diretamente o melhor de cada critério, sem depender de peso
+    nenhum, então não sofre desse problema.
+
+    Reaproveita rank() internamente com peso 1.0 isolado em cada métrica
+    (as outras duas em 0.0) — o score fica determinado inteiramente por
+    aquela métrica, então ordenar por score == ordenar pela métrica pura.
+    Usa a mesma checagem de viabilidade/T1 que rank() normal, sem duplicar
+    lógica.
+
+    Retorna {"qubits": [...], "tempo": [...], "fidelidade": [...]},
+    cada lista já ordenada (melhor primeiro) só por aquele critério.
+    """
+    return {
+        "qubits": rank(compare_result, hardware_calibrations,
+                       weight_qubits=1.0, weight_time=0.0, weight_fidelity=0.0),
+        "tempo": rank(compare_result, hardware_calibrations,
+                      weight_qubits=0.0, weight_time=1.0, weight_fidelity=0.0),
+        "fidelidade": rank(compare_result, hardware_calibrations,
+                           weight_qubits=0.0, weight_time=0.0, weight_fidelity=1.0),
+    }

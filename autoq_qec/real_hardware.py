@@ -74,18 +74,23 @@ HARDWARE_PROFILES = {
     ),
 
     "IBM_Heron_r2": CalibratedHardware(
-        name="IBM Heron r2 (ibm_torino)",
-        n_qubits=133,
-        p_1q_mean=1.9e-4,
-        p_2q_mean=3.0e-3,   # CZ gate no Heron
-        p_2q_worst=8.5e-3,
-        t_1q_ns=56.0,
-        t_2q_ns=100.0,       # CZ mais rápido que CNOT no Eagle
-        T1_us=242.0,
-        T2_us=186.0,
-        readout_error=0.0089,
+        name="IBM Heron r2 (ibm_fez)",
+        n_qubits=156,
+        p_1q_mean=4.2e-4,
+        p_2q_mean=6.7e-3,   # CZ gate no Heron
+        p_2q_worst=2.0e-1,
+        t_1q_ns=24.0,
+        t_2q_ns=68.6,
+        T1_us=139.3,
+        T2_us=101.0,
+        readout_error=0.0149,
         topology="heavy-hex",
-        source="IBM Quantum: Heron r2 specs 2024; arXiv:2404.07471",
+        source="Calibração ao vivo real de ibm_fez via QiskitRuntimeService, 16 Jul 2026 "
+               "(corrigido nesta sessão: a entrada anterior tinha n_qubits=133 — que é a "
+               "contagem do Heron r1, não do r2, que tem 156 — associada a ibm_torino, que "
+               "é na verdade Heron r1, não r2 (o r2 real é acessível via ibm_fez); a citação "
+               "'arXiv:2404.07471' também estava errada — esse paper é sobre modelos de "
+               "linguagem para código-fonte, não hardware quântico).",
     ),
 
     "Quantinuum_H2": CalibratedHardware(
@@ -109,16 +114,20 @@ HARDWARE_PROFILES = {
     "IonQ_Aria": CalibratedHardware(
         name="IonQ Aria-1",
         n_qubits=25,
-        p_1q_mean=4.0e-4,
-        p_2q_mean=5.5e-3,    # MS gate (Mølmer-Sørensen)
+        p_1q_mean=6.0e-4,    # 0.06% RB, ionq.com/quantum-systems/aria
+        p_2q_mean=6.0e-3,    # 0.6% MS gate (Mølmer-Sørensen), ionq.com/quantum-systems/aria
         p_2q_worst=8.0e-3,
         t_1q_ns=135e3,       # 135 µs
         t_2q_ns=600e3,       # 600 µs
         T1_us=1e7,           # >10 s
-        T2_us=1e5,           # ~0.1 s
-        readout_error=0.005,
+        T2_us=1e6,           # ~1 s (era 1e5/~0.1s — 10x subestimado)
+        readout_error=0.0039,  # 0.39% SPAM, ionq.com/quantum-systems/aria
         topology="all-to-all",
-        source="IonQ Aria specs; arXiv:2307.01765 (2023)",
+        source="IonQ Aria — especificação oficial publicada em "
+               "https://www.ionq.com/quantum-systems/aria (corrigido nesta sessão: a "
+               "citação anterior, 'arXiv:2307.01765', é um paper de matemática pura sobre "
+               "medianas de Wasserstein, sem nenhuma relação com IonQ; p_1q_mean, T2_us e "
+               "readout_error também foram ajustados para os valores oficiais reais).",
     ),
 
     "Google_Sycamore": CalibratedHardware(
@@ -144,27 +153,33 @@ HARDWARE_PROFILES = {
         p_2q_worst=8.0e-3,
         t_1q_ns=25.0,
         t_2q_ns=25.0,
-        T1_us=100.0,
-        T2_us=150.0,
+        T1_us=68.0,          # era 100.0 — paper reporta T1 medio de 68us
+        T2_us=89.0,          # era 150.0 — paper reporta T2,CPMG de 89us
         readout_error=0.007,
         topology="grid-2d",
-        source="Acharya et al. (Google), Nature 638, 964-971 (2025). "
-               "doi:10.1038/s41586-024-08449-y",
+        source="Acharya et al. (Google), Nature 638 (2025). doi:10.1038/s41586-024-08449-y "
+               "(corrigido nesta sessão: T1/T2 estavam superestimados — 100/150us no lugar "
+               "dos 68/89us reportados no paper; p_1q_mean/p_2q_mean não puderam ser "
+               "confirmados como numeros isolados no texto do paper, mantidos como estavam).",
     ),
 
     "IBM_Heron_r3": CalibratedHardware(
         name="IBM Heron r3 (ibm_pittsburgh)",
-        n_qubits=133,
+        n_qubits=156,        # r3 mantém o desenho de 156 qubits introduzido no r2, não 133 (isso é r1)
         p_1q_mean=1.5e-4,
-        p_2q_mean=2.0e-3,
+        p_2q_mean=1.7e-3,    # "latest calibration" — não o valor recorde isolado (~5e-4) de um tweet de lançamento
         p_2q_worst=5.0e-3,
         t_1q_ns=56.0,
-        t_2q_ns=80.0,
-        T1_us=180.0,
-        T2_us=140.0,
+        t_2q_ns=88.0,
+        T1_us=300.0,
+        T2_us=370.0,
         readout_error=0.007,
         topology="heavy-hex",
-        source="IBM Quantum changelog Q4 2025; ibm_pittsburgh (Heron r3)",
+        source="Jay Gambetta (IBM), anúncio de lançamento ibm_pittsburgh, jul 2025 "
+               "(x.com/jaygambetta/status/1925017189959991338) + postquantum.com cobertura "
+               "do lançamento — corrigido nesta sessão: n_qubits estava em 133 (contagem do "
+               "Heron r1), mas r3 mantém os 156 qubits do r2; T1/T2 também corrigidos "
+               "(180/140 → 300/370, valores reais reportados no lançamento).",
     ),
 }
 

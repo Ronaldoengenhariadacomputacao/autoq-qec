@@ -56,6 +56,67 @@ for r in recommendations[:3]:
           f"fidelity={r.fidelity_circuit:.4f}")
 ```
 
+## `rank()` weights
+
+`rank()` combines three different metrics into a single score, using weights you choose. Each weight controls how much that metric counts against the other two:
+
+| Parameter | Default | Controls | Increasing it favors... |
+|---|---|---|---|
+| `weight_qubits` | `0.5` | Total physical qubits the hardware+code combination needs | Combinations that save qubits, even if slower or with less fidelity margin |
+| `weight_time` | `0.3` | Execution time (µs) the combination takes | Fast combinations, even if they need more qubits |
+| `weight_fidelity` | `0.2` | How far predicted fidelity sits above your `fidelity_target` | Combinations with more fidelity safety margin, even if costlier in qubits/time |
+
+Weights don't need to sum to 1.0 — they're normalized automatically (the ratio between them is what matters, not the absolute values). **The default weights genuinely change the outcome — verified empirically**: the same circuit/hardware list ranked with `weight_time=0.9` instead of the default reordered the ranking substantially (a combination that ranked #3 by default dropped out of the top 5 entirely, replaced by a faster-but-more-qubit-hungry option). Qubits, time, and fidelity are different units with no natural common scale — the weights *are* the exchange rate between them, and the right rate depends on your actual constraints (e.g., queue-time-billed access cares more about time; qubit-scarce hardware cares more about qubit count). There is no single "objective" ranking — pass weights that reflect your real situation.
+
+```python
+# 1. Default: prioritize qubit savings
+recommendations = rank(result)  # weight_qubits=0.5, weight_time=0.3, weight_fidelity=0.2
+
+# 2. Prioritize execution speed
+recommendations = rank(result, weight_qubits=0.1, weight_time=0.8, weight_fidelity=0.1)
+
+# 3. Prioritize fidelity margin
+recommendations = rank(result, weight_qubits=0.1, weight_time=0.1, weight_fidelity=0.8)
+
+# 4. Balanced: all three metrics count equally
+recommendations = rank(result, weight_qubits=1, weight_time=1, weight_fidelity=1)
+
+# 5. Operational cost (qubits + time); fidelity only needs to clear the target
+recommendations = rank(result, weight_qubits=0.45, weight_time=0.45, weight_fidelity=0.1)
+```
+
+| # | Preset | When to use |
+|---|---|---|
+| 1 | Default (qubit savings) | NISQ hardware with few physical qubits available — the most common constraint today |
+| 2 | Speed | You pay for queue/execution time, or decoherence over time is the bigger concern |
+| 3 | Fidelity margin | Your use case can't tolerate being right at the edge — you want extra safety margin, not just barely clearing the bar |
+| 4 | Balanced | You don't yet know which constraint matters most and want a neutral starting point |
+| 5 | Operational cost | Fidelity is already guaranteed by `fidelity_target` (a minimum requirement, not something to maximize) — what's left to decide is qubits vs. time |
+
+### `rank_by_metric()` — when weights can't show you the trade-off
+
+When one hardware+code combination beats every other candidate on *every* metric at once (qubits, time, *and* fidelity — a "Pareto-dominant" option), no weight combination in `rank()` can ever pick anything else as `#1`: a weighted sum can't rank a dominated option above a dominant one. That's mathematically correct, but it can hide real trade-offs among the *non-dominant* options. `rank_by_metric()` sidesteps this by ranking each metric independently, with no weighting at all:
+
+```python
+from autoq_qec import rank_by_metric
+
+por_metrica = rank_by_metric(result)
+for metrica, lista in por_metrica.items():
+    top = lista[0]
+    print(f"Best by {metrica}: {top.hardware}/{top.code} — "
+          f"{top.total_physical_qubits}q, {top.execution_time_us}µs, fid={top.fidelity_circuit:.5f}")
+```
+
+Real example from this package's own test suite (QFT on 6 qubits, `fidelity_target=0.999`, comparing IBM Eagle/Heron and Quantinuum H2) — `rank()` converges to the same `#1` under all 5 presets above, yet the per-metric breakdown reveals a real trade-off hidden behind that single "winner":
+
+| Metric | Winner | Qubits | Time | Fidelity |
+|---|---|---|---|---|
+| Qubits | `Quantinuum_H2`/Bacon-Shor | **294** | 680,400 µs | 0.99934 |
+| Time | `IBM_Heron`/Floquet Code | 6,072 | **77.7 µs** | 0.99949 |
+| Fidelity | `Quantinuum_H2`/Floquet Code | 2,328 | 32,400 µs | **0.99957** |
+
+A ~78× time spread and a ~20× qubit spread between the extremes — none of that is visible if you only look at `rank()`'s combined `#1`. Use `rank_by_metric()` first to see the actual shape of your trade-off space, then use `rank()` with weights once you know which end of that space you actually care about.
+
 **Variational circuits (VQE, QAOA, etc.) must have parameters bound first.** `RealAmplitudes`, `EfficientSU2`, `QAOAAnsatz`, and similar templates carry symbolic parameters until you call `assign_parameters()` — T-count depends on the actual rotation angles, which don't exist in a symbolic circuit. Passing an unbound circuit raises a clear `ValueError` (as of 3.2.2):
 
 ```python
@@ -101,6 +162,8 @@ result = compare(circuit, hardwares, fidelity_target=0.99, model_magic_state_dis
 The T-factory cost model (`autoq_qec/distillation.py`) implements the multi-round 15-to-1 distillation formulas from Beverland, Kliuchnikov, Schoute et al., "Assessing requirements to scale to practical quantum advantage", arXiv:2211.07629 (Appendix C, Table VI; Appendix E, Eqs. C1–C4, E4–E6) — validated against the paper's own worked examples (Table VII) as regression tests (`tests/test_distillation.py`), reproducing their exact numbers (qubits, time, output error) for both a 1-round and a 2-round factory. Two simplifications versus the paper, documented in the module docstring: the per-round factory search is greedy (cheapest distance meeting the round's error target) rather than a global optimum over a full factory catalog, and the physical T-state input error is assumed equal to the hardware's Clifford error rate `p_phys` (the paper allows a separate value for Majorana qubits, which this package doesn't model). Default is `False` — existing code is unaffected.
 
 **Fidelity formula**: `fidelity_circuit = (1 - p_L)^n_gates × (1 - readout_error)^n_logical_qubits × exp(-execution_time_us / T2_us)`. `readout_error` and `T2_us` are optional fields on `HardwareProfile` (default `0.0` / `None`, preserving the old formula if omitted).
+
+**Known limitation: mid-circuit measurement error is not modeled separately.** `readout_error` represents end-of-circuit measurement error only. Real hardware (including Quantinuum's own datasheet, cited above) reports a distinct, usually different "mid-circuit measurement and reset cross-talk error" for measurements that happen mid-circuit — common in real fault-tolerant protocols using dynamic circuits (measurement + conditional reset). This package does not currently distinguish between the two — any measurement in your circuit, wherever it occurs, is treated as if it happens at the end. If your circuit relies heavily on mid-circuit measurement, treat `readout_error`'s contribution to `fidelity_circuit` as an approximation, not a precise model of that specific error source.
 
 This is an order-of-magnitude estimator, not a calibrated simulator. The readout term was added after comparing a hand-rolled `(1-p_phys)^n_gates` baseline against noisy Aer simulations of a GHZ-4 circuit, across 4 hardware noise models — 3 real (IBM `ibm_fez`, `ibm_marrakesh`, `ibm_kingston`, pulled live via Open Plan) and 1 synthetic (Google Willow, built from the published Nature 638 specs, since Google has no public self-service hardware access):
 

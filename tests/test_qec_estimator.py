@@ -313,5 +313,67 @@ class TestCasosDeLimite(unittest.TestCase):
             f"QFT(50) levou {duracao:.1f}s — possível regressão de performance")
 
 
+class TestConectividadeCoupling(unittest.TestCase):
+    """
+    v3.2.4: compare() agora transpila cada hardware com o coupling_map real
+    derivado de HardwareProfile.topology, em vez de sempre assumir
+    conectividade total (all-to-all) para todo mundo — antes, topology era
+    lido em nenhum lugar do código, ficando puramente decorativo.
+    """
+
+    def test_topologia_limitada_penaliza_grafo_completo_de_interacoes(self):
+        """
+        Circuito onde todos os pares de qubits interagem (grafo completo)
+        não tem como ser roteado sem SWAP em nenhuma topologia limitada,
+        não importa o layout inicial escolhido pelo transpiler — diferente
+        de um circuito com só uma interação de 2 qubits, que o transpiler
+        pode sempre mapear para posições adjacentes livremente.
+        """
+        n = 6
+        qc = QuantumCircuit(n)
+        for i in range(n):
+            for j in range(i + 1, n):
+                qc.cx(i, j)
+
+        hw_linear = HardwareProfile("Linear", t_gate_ns=100, p_phys=0.001, topology="linear")
+        hw_all2all = HardwareProfile("AllToAll", t_gate_ns=100, p_phys=0.001, topology="all-to-all")
+
+        result = compare(qc, [hw_linear, hw_all2all], fidelity_target=0.99)
+
+        surface_linear = next(r for r in result["results"]["Linear"] if r.code_name == "Surface Code")
+        surface_all2all = next(r for r in result["results"]["AllToAll"] if r.code_name == "Surface Code")
+
+        self.assertGreater(surface_linear.execution_time_us, surface_all2all.execution_time_us,
+            "Topologia linear deveria exigir mais tempo (SWAPs) que all-to-all "
+            "para um circuito com grafo completo de interações")
+
+    def test_topologia_desconhecida_nao_quebra(self):
+        """Topology não reconhecida deve cair no comportamento antigo (sem
+        coupling_map), não levantar erro."""
+        qc = QuantumCircuit(2); qc.h(0); qc.cx(0, 1)
+        hw = HardwareProfile("Exotico", t_gate_ns=100, p_phys=0.001, topology="topologia-alienigena")
+        result = compare(qc, [hw], fidelity_target=0.99)
+        self.assertIn("Exotico", result["results"])
+
+    def test_circuito_interacao_unica_nao_precisa_swap_mesmo_limitado(self):
+        """Circuito com uma única interação de 2 qubits não deveria precisar
+        de SWAP em nenhuma topologia conectada — o transpiler é livre para
+        escolher o layout inicial. Isso confirma que a penalidade em outros
+        testes vem de necessidade real de roteamento, não de qualquer
+        coupling_map não-trivial."""
+        qc = QuantumCircuit(5)
+        qc.h(0)
+        qc.cx(0, 4)
+
+        hw_linear = HardwareProfile("Linear", t_gate_ns=100, p_phys=0.001, topology="linear")
+        hw_all2all = HardwareProfile("AllToAll", t_gate_ns=100, p_phys=0.001, topology="all-to-all")
+
+        result = compare(qc, [hw_linear, hw_all2all], fidelity_target=0.99)
+        surface_linear = next(r for r in result["results"]["Linear"] if r.code_name == "Surface Code")
+        surface_all2all = next(r for r in result["results"]["AllToAll"] if r.code_name == "Surface Code")
+
+        self.assertEqual(surface_linear.execution_time_us, surface_all2all.execution_time_us)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

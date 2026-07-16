@@ -11,14 +11,14 @@ from .qec_estimator import (
     compare,
 )
 from .real_hardware import CalibratedHardware, HARDWARE_PROFILES
-from .recommender import rank, Recommendation
+from .recommender import rank, rank_by_metric, Recommendation
 from .algorithm_estimator import AlgorithmEstimator, AlgorithmEstimate
 
-__version__ = "3.2.3"
+__version__ = "3.3.3"
 __all__ = [
     "CircuitProfile", "HardwareProfile", "CodeResult",
     "CalibratedHardware", "HARDWARE_PROFILES",
     "Recommendation",
     "AlgorithmEstimator", "AlgorithmEstimate",
-    "extract_circuit_profile", "estimate", "compare", "rank",
+    "extract_circuit_profile", "estimate", "compare", "rank", "rank_by_metric",
 ]
