@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "autoq-qec"
-version = "3.3.3"
+version = "3.3.4"
 description = "Multi-code QEC resource estimator for arbitrary Qiskit circuits"
 readme = "README.md"
 license = {text = "MIT"}

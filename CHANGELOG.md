@@ -3,6 +3,33 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.3.4] - 2026-07-16
+
+Found by an end-to-end user-simulation test (fresh venv, `pip install autoq-qec`
+from PyPI, walking through every code snippet in the README).
+
+### Fixed
+- `rank()`/`rank_by_metric()` silently dropped `magic_state_qubits`,
+  `magic_state_factories`, and `magic_state_t_state_error` when building
+  `Recommendation` from `CodeResult`. These fields exist and are correctly
+  populated in `compare()`'s raw output when
+  `model_magic_state_distillation=True`, but `Recommendation` (the object
+  `rank()` returns — the primary documented workflow) didn't carry them at
+  all, so accessing `r.magic_state_qubits` on a ranked result raised
+  `AttributeError`. `total_physical_qubits` was already correct (it included
+  distillation overhead); only the breakdown was inaccessible without
+  bypassing `rank()` and reading the raw `compare()` dict. Fixed by adding
+  the three fields to `Recommendation` (default `None`, backward-compatible)
+  and propagating them from `CodeResult` in `rank()`.
+- `CONTRIBUTING.md`/`README.md` referenced a stale, hardcoded test count
+  ("22 tests" / "81 tests"); the suite has grown to 97 tests across recent
+  releases. `CONTRIBUTING.md` no longer hardcodes a number; `README.md`
+  updated to 97.
+
+### Added
+- `.github/ISSUE_TEMPLATE/bug_report.md` — structured bug report template
+  (version, hardware/backend, reproducing circuit, expected vs. actual).
+
 ## [3.3.3] - 2026-07-16
 
 Version jumps from 3.2.3 to 3.3.3 (skipping 3.3.0–3.3.2) to mark this release

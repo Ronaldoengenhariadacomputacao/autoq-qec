@@ -17,6 +17,9 @@ class Recommendation:
     fidelity_circuit: float
     score: float          # menor = melhor (normalizado)
     bottleneck: str       # o que domina o custo
+    magic_state_qubits: Optional[int] = None
+    magic_state_factories: Optional[int] = None
+    magic_state_t_state_error: Optional[float] = None
 
 def _find_calibration(hw_name: str, hw_t_gate_ns: float, hw_p_phys: float,
                        calibrations: dict):
@@ -143,6 +146,9 @@ def rank(compare_result: dict,
             fidelity_circuit=r.fidelity_circuit,
             score=score,
             bottleneck=f"{bottleneck} ({bottleneck_pct:.0f}% do score)",
+            magic_state_qubits=r.magic_state_qubits,
+            magic_state_factories=r.magic_state_factories,
+            magic_state_t_state_error=r.magic_state_t_state_error,
         ))
 
     recommendations.sort(key=lambda x: x.score)
