@@ -1,6 +1,6 @@
 # AutoQ QEC Estimator
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21348436.svg)](https://doi.org/10.5281/zenodo.21348436)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21398841.svg)](https://doi.org/10.5281/zenodo.21398841)
 
 **Multi-code fault-tolerant quantum error correction estimator for arbitrary Qiskit circuits.**
 
