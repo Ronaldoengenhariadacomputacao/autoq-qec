@@ -3,9 +3,9 @@ message: "If you use this software, please cite it as below."
 type: software
 title: "AutoQ QEC Estimator"
 version: 3.3.4
-date-released: 2026-07-16
+date-released: 2026-07-17
 url: "https://github.com/Ronaldoengenhariadacomputacao/autoq-qec"
-doi: 10.5281/zenodo.21402436
+doi: 10.5281/zenodo.21402822
 license: MIT
 authors:
   - family-names: Rodrigues
