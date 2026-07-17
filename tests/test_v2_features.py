@@ -580,6 +580,42 @@ class TestInvarianteDestilacao(unittest.TestCase):
                 f"{r_sem.code_name}: destilação diminuiu tempo de execução")
 
 
+class TestRecommendationExpoeMagicState(unittest.TestCase):
+    """
+    Regressão v3.3.4: rank()/rank_by_metric() descartavam silenciosamente
+    magic_state_qubits/magic_state_factories/magic_state_t_state_error do
+    CodeResult ao montar Recommendation -- acessar esses campos no
+    resultado de rank() (o fluxo documentado principal) levantava
+    AttributeError, mesmo com model_magic_state_distillation=True.
+    """
+
+    def test_campos_de_magic_state_acessiveis_no_resultado_de_rank(self):
+        qc = QuantumCircuit(2)
+        qc.h(0); qc.t(0); qc.t(0); qc.cx(0, 1); qc.t(1)
+        hw = HardwareProfile("Teste", t_gate_ns=100, p_phys=0.001, topology="all-to-all")
+
+        result = compare(qc, [hw], fidelity_target=0.99,
+                          model_magic_state_distillation=True)
+        recs = rank(result)
+        self.assertTrue(recs, "nenhuma combinação viável para testar")
+
+        r = recs[0]
+        self.assertIsNotNone(r.magic_state_qubits)
+        self.assertIsNotNone(r.magic_state_factories)
+        self.assertIsNotNone(r.magic_state_t_state_error)
+
+    def test_campos_de_magic_state_none_quando_flag_desligada(self):
+        qc = QuantumCircuit(2)
+        qc.h(0); qc.cx(0, 1)
+        hw = HardwareProfile("Teste", t_gate_ns=100, p_phys=0.001, topology="all-to-all")
+
+        result = compare(qc, [hw], fidelity_target=0.99)
+        r = rank(result)[0]
+        self.assertIsNone(r.magic_state_qubits)
+        self.assertIsNone(r.magic_state_factories)
+        self.assertIsNone(r.magic_state_t_state_error)
+
+
 class TestRankByMetric(unittest.TestCase):
     """
     rank_by_metric() complementa rank(): quando uma combinação domina todos
