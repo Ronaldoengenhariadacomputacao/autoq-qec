@@ -6,6 +6,7 @@ Referências:
   Steane [[7,1,3]]: Steane, PRL 77, 793 (1996)
 """
 import math
+import warnings
 from dataclasses import dataclass
 from typing import Optional
 
@@ -32,6 +33,55 @@ class HardwareProfile:
     T2_us: Optional[float] = None  # tempo de decoerência (opcional)
     t_meas_ns: Optional[float] = None  # tempo de medição (opcional, default=t_gate_ns)
 
+    def __post_init__(self):
+        """
+        Zero ou negativo não tem significado físico para nenhum destes
+        campos (uma porta não roda em tempo zero/negativo; T1/T2 zero
+        seria decoerência instantânea, não "não modelada" -- isso já é
+        representado por None). Rejeita cedo, com ValueError claro, em vez
+        de deixar passar silenciosamente e produzir resultados absurdos
+        mais adiante (achado: t_gate_ns=0 gerava execution_time_us=0.0 sem
+        nenhum erro; readout_error fora de [0,1] gerava fidelity_circuit
+        > 1.0).
+        """
+        if self.t_gate_ns <= 0:
+            raise ValueError(f"t_gate_ns deve ser > 0, recebido {self.t_gate_ns}")
+        if self.p_phys <= 0:
+            raise ValueError(f"p_phys deve ser > 0, recebido {self.p_phys}")
+        if not (0 <= self.readout_error < 1):
+            raise ValueError(f"readout_error deve estar em [0, 1), recebido {self.readout_error}")
+        if self.T1_us is not None and self.T1_us <= 0:
+            raise ValueError(f"T1_us deve ser > 0 ou None, recebido {self.T1_us}")
+        if self.T2_us is not None and self.T2_us <= 0:
+            raise ValueError(f"T2_us deve ser > 0 ou None, recebido {self.T2_us}")
+        if self.t_meas_ns is not None and self.t_meas_ns <= 0:
+            raise ValueError(f"t_meas_ns deve ser > 0 ou None, recebido {self.t_meas_ns}")
+
+    @classmethod
+    def from_calibrated(cls, cal) -> "HardwareProfile":
+        """
+        Constrói um HardwareProfile a partir de um CalibratedHardware
+        (ex.: HARDWARE_PROFILES["IBM_Heron_r2"]), carregando T1_us/T2_us/
+        readout_error automaticamente.
+
+        Existe porque HardwareProfile precisa ser construído manualmente
+        pra usar em compare()/rank(), e os exemplos documentados (README,
+        example.py) historicamente copiavam só t_gate_ns/p_phys/topology
+        à mão, esquecendo T2_us/readout_error — o que faz a fidelidade
+        prevista ignorar decoerência por completo (ver "Known limitation:
+        HardwareProfile sem T2_us" no README). Usar este construtor evita
+        esse esquecimento: carrega todos os campos calibrados de uma vez.
+        """
+        return cls(
+            name=cal.name,
+            t_gate_ns=cal.t_2q_ns,
+            p_phys=cal.p_phys,
+            topology=cal.topology,
+            readout_error=cal.readout_error,
+            T1_us=cal.T1_us,
+            T2_us=cal.T2_us,
+        )
+
 @dataclass
 class CodeResult:
     code_name: str
@@ -48,6 +98,15 @@ class CodeResult:
     fidelity_circuit: Optional[float]
     feasible: bool
     reason: str                # motivo de inviabilidade ou sumário
+    # True se fidelity_circuit >= fidelity_target (só definido quando
+    # feasible=True). feasible sozinho só garante p_L <= p_L_target (erro
+    # de porta) -- fidelity_circuit inclui também readout_error e a
+    # penalidade de decoerência T2_us, que podem derrubar a fidelidade
+    # real bem abaixo do alvo mesmo com feasible=True (achado auditando
+    # rank() com T2_us ativado: combinações com fidelidade ~0% apareciam
+    # como "viáveis"). Ver rank(), que usa este campo para não deixar uma
+    # opção que não entrega o alvo pedido competir por #1.
+    meets_fidelity_target: Optional[bool] = None
     # Custo de destilação de estado mágico — só preenchido quando
     # model_magic_state_distillation=True em estimate() (ver distillation.py)
     magic_state_qubits: Optional[int] = None
@@ -235,6 +294,44 @@ def _decoherence_factor(time_us: float, T2_us: Optional[float]) -> float:
 
 # ── Estimador principal ───────────────────────────────────────────────────────
 
+def _warn_incomplete_hardware_profile(hardware: HardwareProfile) -> None:
+    """
+    Avisa quando HardwareProfile está com campos no default silencioso
+    (readout_error=0.0, T1_us=None, T2_us=None) — cada um faz fidelity_circuit
+    parecer melhor do que seria com dados reais, sem nenhum sinal de que
+    algo foi omitido. Lista só os campos que faltam de fato: se o usuário
+    já informou um deles, ele some da mensagem; o aviso para de aparecer
+    de vez quando os três estiverem preenchidos (ou explicitamente ligados
+    a partir de HardwareProfile.from_calibrated(), que já traz os três).
+    """
+    faltando = []
+    if hardware.readout_error == 0.0:
+        faltando.append(
+            "readout_error [erro médio de leitura por qubit ao final do "
+            "circuito, fração 0-1] — assumindo 0.0 (leitura perfeita)"
+        )
+    if hardware.T1_us is None:
+        faltando.append(
+            "T1_us [tempo de relaxação T1 do hardware, em µs] — sem ele, "
+            "o filtro de viabilidade por T1 em rank() fica desligado"
+        )
+    if hardware.T2_us is None:
+        faltando.append(
+            "T2_us [tempo de decoerência T2 do hardware, em µs] — sem ele, "
+            "decoerência não é modelada e fidelity_circuit ignora o tempo "
+            "de execução por completo"
+        )
+    if faltando:
+        warnings.warn(
+            f"HardwareProfile '{hardware.name}' sem: {'; '.join(faltando)}. "
+            "fidelity_circuit pode estar superestimada. Use "
+            "HardwareProfile.from_calibrated(HARDWARE_PROFILES[...]) para "
+            "carregar dados reais automaticamente, se o hardware estiver "
+            "na lista embutida.",
+            UserWarning, stacklevel=3,
+        )
+
+
 def estimate(circuit_profile: CircuitProfile,
              hardware: HardwareProfile,
              fidelity_target: float = 0.99,
@@ -254,6 +351,8 @@ def estimate(circuit_profile: CircuitProfile,
     """
     if not (0 < fidelity_target < 1):
         raise ValueError("fidelity_target deve estar em (0, 1)")
+
+    _warn_incomplete_hardware_profile(hardware)
 
     N = circuit_profile.n_physical_gates
     if N == 0:
@@ -293,6 +392,7 @@ def estimate(circuit_profile: CircuitProfile,
             p_logical_achieved=p_L,
             fidelity_circuit=fid,
             feasible=True,
+            meets_fidelity_target=fid >= fidelity_target,
             reason=f"d={d}, p_L={p_L:.2e}",
         ))
     except ValueError as e:
@@ -327,6 +427,7 @@ def estimate(circuit_profile: CircuitProfile,
             p_logical_achieved=p_L,
             fidelity_circuit=fid,
             feasible=True,
+            meets_fidelity_target=fid >= fidelity_target,
             reason=f"d={d}, [[{d**2},1,{d}]], p_L={p_L:.2e}",
         ))
     except ValueError as e:
@@ -361,6 +462,7 @@ def estimate(circuit_profile: CircuitProfile,
             p_logical_achieved=p_L,
             fidelity_circuit=fid,
             feasible=True,
+            meets_fidelity_target=fid >= fidelity_target,
             reason=f"d=3 fixo, p_L={p_L:.2e}",
         ))
     except ValueError as e:
@@ -395,6 +497,7 @@ def estimate(circuit_profile: CircuitProfile,
             p_logical_achieved=p_L,
             fidelity_circuit=fid,
             feasible=True,
+            meets_fidelity_target=fid >= fidelity_target,
             reason=f"d={d} (4.8.8 planar), p_L={p_L:.2e}",
         ))
     except ValueError as e:
@@ -407,13 +510,15 @@ def estimate(circuit_profile: CircuitProfile,
         ))
 
     if model_magic_state_distillation:
-        _apply_magic_state_distillation(results, circuit_profile, hardware, p_L_target)
+        _apply_magic_state_distillation(results, circuit_profile, hardware,
+                                         p_L_target, fidelity_target)
 
     return results
 
 
 def _apply_magic_state_distillation(results: list, circuit_profile: CircuitProfile,
-                                     hardware: HardwareProfile, p_L_target: float) -> None:
+                                     hardware: HardwareProfile, p_L_target: float,
+                                     fidelity_target: float) -> None:
     """
     Adiciona o custo de destilação de estado mágico (T-factories) aos
     CodeResult viáveis, mutando a lista in-place. Reaproveita o mesmo
@@ -461,6 +566,7 @@ def _apply_magic_state_distillation(results: list, circuit_profile: CircuitProfi
                 new_decoherence = _decoherence_factor(new_time_us, hardware.T2_us)
                 if old_decoherence > 0:
                     r.fidelity_circuit = r.fidelity_circuit / old_decoherence * new_decoherence
+                r.meets_fidelity_target = r.fidelity_circuit >= fidelity_target
             r.execution_time_us = new_time_us
 
 
@@ -511,7 +617,8 @@ def compare(circuit, hardware_list: list[HardwareProfile],
     perfil específico de cada hardware internamente.
     """
     profile = extract_circuit_profile(circuit)
-    output = {"circuit_profile": profile, "results": {}, "hardware_profiles": {}}
+    output = {"circuit_profile": profile, "results": {}, "hardware_profiles": {},
+              "fidelity_target": fidelity_target}
     for hw in hardware_list:
         hw_profile = profile
         coupling_map = _coupling_map_for_topology(hw.topology, circuit.num_qubits)

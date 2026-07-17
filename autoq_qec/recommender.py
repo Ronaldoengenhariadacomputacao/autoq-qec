@@ -20,6 +20,11 @@ class Recommendation:
     magic_state_qubits: Optional[int] = None
     magic_state_factories: Optional[int] = None
     magic_state_t_state_error: Optional[float] = None
+    # False quando fidelity_circuit < fidelity_target (readout_error/T2_us
+    # derrubaram a fidelidade abaixo do que foi pedido, mesmo com o código
+    # QEC "viável" por erro de porta sozinho -- ver rank(), que nunca deixa
+    # uma dessas competir por #1 contra quem realmente atinge o alvo.
+    meets_fidelity_target: Optional[bool] = None
 
 def _find_calibration(hw_name: str, hw_t_gate_ns: float, hw_p_phys: float,
                        calibrations: dict):
@@ -106,52 +111,86 @@ def rank(compare_result: dict,
     if not candidatos:
         return []
 
-    # Normalizar métricas para [0,1]
-    qubits_vals = [r.total_physical_qubits for _, r in candidatos]
-    time_vals   = [r.execution_time_us      for _, r in candidatos]
-    fid_vals    = [r.fidelity_circuit        for _, r in candidatos]
+    fidelity_target = compare_result.get("fidelity_target")
 
-    q_min, q_max = min(qubits_vals), max(qubits_vals)
-    t_min, t_max = min(time_vals),   max(time_vals)
-    f_min, f_max = min(fid_vals),    max(fid_vals)
+    # Ranking em duas camadas (v3.4.0): feasible=True só garante que o
+    # código QEC escolhido cobre o erro de porta (p_L <= p_L_target) --
+    # não garante que fidelity_circuit (que também inclui readout_error e
+    # a penalidade de decoerência T2_us) realmente bate o fidelity_target
+    # pedido. Achado auditando rank() com T2_us ativado: combinações com
+    # fidelidade ~0% apareciam misturadas e às vezes na frente de
+    # combinações com fidelidade real, só por gastarem menos qubits/tempo.
+    #
+    # Camada A ("meets_fidelity_target=True"): ranking ponderado normal
+    # (qubits/tempo/fidelidade) -- é uma disputa legítima entre opções que
+    # já entregam o que foi pedido.
+    # Camada B ("meets_fidelity_target=False"): não excluídas, mas nunca
+    # competem pelo #1 contra a Camada A -- ordenadas só pela fidelidade
+    # real, da mais próxima do alvo pra mais longe, já que qubits/tempo são
+    # irrelevantes para uma combinação que não funciona.
+    candidatos_ok = [(hw, r) for hw, r in candidatos if r.meets_fidelity_target]
+    candidatos_abaixo = [(hw, r) for hw, r in candidatos if not r.meets_fidelity_target]
 
-    def norm(v, lo, hi):
-        return 0.0 if hi == lo else (v - lo) / (hi - lo)
+    def _construir_recomendacoes(grupo, meets_target):
+        if not grupo:
+            return []
+        qubits_vals = [r.total_physical_qubits for _, r in grupo]
+        time_vals   = [r.execution_time_us      for _, r in grupo]
+        fid_vals    = [r.fidelity_circuit        for _, r in grupo]
 
-    recommendations = []
-    for hw_name, r in candidatos:
-        q_norm = norm(r.total_physical_qubits, q_min, q_max)
-        t_norm = norm(r.execution_time_us, t_min, t_max)
-        f_norm = 1 - norm(r.fidelity_circuit, f_min, f_max)  # inverso: maior fid = menor custo
+        q_min, q_max = min(qubits_vals), max(qubits_vals)
+        t_min, t_max = min(time_vals),   max(time_vals)
+        f_min, f_max = min(fid_vals),    max(fid_vals)
 
-        score = (weight_qubits * q_norm
-                 + weight_time * t_norm
-                 + weight_fidelity * f_norm)
+        def norm(v, lo, hi):
+            return 0.0 if hi == lo else (v - lo) / (hi - lo)
 
-        # Bottleneck: qual fator domina?
-        contributions = {
-            "qubits":    weight_qubits * q_norm,
-            "tempo":     weight_time * t_norm,
-            "fidelidade":weight_fidelity * f_norm,
-        }
-        bottleneck = max(contributions, key=contributions.get)
-        bottleneck_pct = contributions[bottleneck] / score * 100 if score > 0 else 0
+        recs = []
+        for hw_name, r in grupo:
+            q_norm = norm(r.total_physical_qubits, q_min, q_max)
+            t_norm = norm(r.execution_time_us, t_min, t_max)
+            f_norm = 1 - norm(r.fidelity_circuit, f_min, f_max)  # inverso: maior fid = menor custo
 
-        recommendations.append(Recommendation(
-            rank=0,  # preenchido abaixo
-            hardware=hw_name,
-            code=r.code_name,
-            total_physical_qubits=r.total_physical_qubits,
-            execution_time_us=r.execution_time_us,
-            fidelity_circuit=r.fidelity_circuit,
-            score=score,
-            bottleneck=f"{bottleneck} ({bottleneck_pct:.0f}% do score)",
-            magic_state_qubits=r.magic_state_qubits,
-            magic_state_factories=r.magic_state_factories,
-            magic_state_t_state_error=r.magic_state_t_state_error,
-        ))
+            score = (weight_qubits * q_norm
+                     + weight_time * t_norm
+                     + weight_fidelity * f_norm)
 
-    recommendations.sort(key=lambda x: x.score)
+            contributions = {
+                "qubits":    weight_qubits * q_norm,
+                "tempo":     weight_time * t_norm,
+                "fidelidade":weight_fidelity * f_norm,
+            }
+            bottleneck_key = max(contributions, key=contributions.get)
+            bottleneck_pct = contributions[bottleneck_key] / score * 100 if score > 0 else 0
+            bottleneck = f"{bottleneck_key} ({bottleneck_pct:.0f}% do score)"
+            if not meets_target:
+                alvo_str = f"{fidelity_target:.4f}" if fidelity_target is not None else "pedido"
+                bottleneck = (f"NÃO atinge fidelity_target={alvo_str} "
+                              f"(fidelidade real: {r.fidelity_circuit:.4f}) — {bottleneck}")
+
+            recs.append(Recommendation(
+                rank=0,  # preenchido abaixo
+                hardware=hw_name,
+                code=r.code_name,
+                total_physical_qubits=r.total_physical_qubits,
+                execution_time_us=r.execution_time_us,
+                fidelity_circuit=r.fidelity_circuit,
+                score=score,
+                bottleneck=bottleneck,
+                meets_fidelity_target=meets_target,
+                magic_state_qubits=r.magic_state_qubits,
+                magic_state_factories=r.magic_state_factories,
+                magic_state_t_state_error=r.magic_state_t_state_error,
+            ))
+        return recs
+
+    recs_ok = _construir_recomendacoes(candidatos_ok, True)
+    recs_ok.sort(key=lambda x: x.score)
+
+    recs_abaixo = _construir_recomendacoes(candidatos_abaixo, False)
+    recs_abaixo.sort(key=lambda x: x.fidelity_circuit, reverse=True)
+
+    recommendations = recs_ok + recs_abaixo
     for i, rec in enumerate(recommendations):
         rec.rank = i + 1
 

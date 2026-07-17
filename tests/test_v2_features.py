@@ -318,6 +318,96 @@ class TestFeature56Hardware(unittest.TestCase):
         result = compare(qc, [hw], 0.99)
         self.assertIn(w.name, result["results"])
 
+    def test_from_calibrated_carrega_t2_us_e_readout_error(self):
+        """
+        v3.4.0: HardwareProfile.from_calibrated() existe porque os exemplos
+        documentados (README, example.py) historicamente montavam
+        HardwareProfile na mão copiando só t_gate_ns/p_phys/topology,
+        esquecendo T2_us/readout_error -- o que fazia a fidelidade prevista
+        ignorar decoerência por completo, mesmo usando hardware com dados
+        reais já calibrados em HARDWARE_PROFILES. Este construtor deve
+        carregar TODOS os campos relevantes automaticamente.
+        """
+        for name, cal in HARDWARE_PROFILES.items():
+            hw = HardwareProfile.from_calibrated(cal)
+            self.assertEqual(hw.name, cal.name)
+            self.assertEqual(hw.t_gate_ns, cal.t_2q_ns)
+            self.assertEqual(hw.p_phys, cal.p_phys)
+            self.assertEqual(hw.topology, cal.topology)
+            self.assertEqual(hw.readout_error, cal.readout_error)
+            self.assertEqual(hw.T1_us, cal.T1_us)
+            self.assertEqual(hw.T2_us, cal.T2_us,
+                f"{name}: from_calibrated deveria preservar T2_us real, não descartar")
+
+    def test_from_calibrated_produz_meets_fidelity_target_correto(self):
+        """
+        Teste de integração: um HardwareProfile construído via
+        from_calibrated() deve produzir resultados onde a penalidade de T2
+        realmente é aplicada (diferente de construir na mão sem T2_us).
+        """
+        qc = QuantumCircuit(2); qc.h(0); qc.cx(0, 1)
+        cal = HARDWARE_PROFILES["Google_Sycamore"]  # T2_us=20.0, o mais curto do conjunto
+        hw = HardwareProfile.from_calibrated(cal)
+        self.assertIsNotNone(hw.T2_us)
+        result = compare(qc, [hw], fidelity_target=0.999999)
+        recs = rank(result)
+        self.assertTrue(recs)
+        # Com T2_us=20us real e um alvo de fidelidade extremamente alto, ao
+        # menos alguma combinação deveria ficar abaixo do alvo -- prova que
+        # a penalidade de T2 está de fato entrando na conta, não sendo
+        # descartada como aconteceria com um HardwareProfile montado à mão
+        # sem T2_us.
+        self.assertTrue(any(not r.meets_fidelity_target for r in recs))
+
+
+class TestAvisoHardwareProfileIncompleto(unittest.TestCase):
+    """
+    v3.4.0: HardwareProfile sem readout_error/T1_us/T2_us não avisava nada
+    -- os três têm o mesmo problema de "default silencioso otimista" que
+    T2_us=None (fidelity_circuit parece melhor do que seria com dados
+    reais). estimate() agora emite um warnings.warn() listando só os
+    campos que faltam de fato.
+    """
+
+    def _hw(self, **kwargs):
+        return HardwareProfile("Teste", t_gate_ns=100, p_phys=0.001,
+                                topology="grid", **kwargs)
+
+    def _qc(self):
+        qc = QuantumCircuit(2); qc.h(0); qc.cx(0, 1)
+        return qc
+
+    def test_avisa_quando_nenhum_campo_informado(self):
+        with self.assertWarns(UserWarning) as ctx:
+            compare(self._qc(), [self._hw()], 0.99)
+        msg = str(ctx.warning)
+        self.assertIn("readout_error", msg)
+        self.assertIn("T1_us", msg)
+        self.assertIn("T2_us", msg)
+
+    def test_aviso_lista_so_os_campos_que_faltam(self):
+        with self.assertWarns(UserWarning) as ctx:
+            compare(self._qc(), [self._hw(T2_us=200)], 0.99)
+        msg = str(ctx.warning)
+        self.assertNotIn("T2_us", msg)
+        self.assertIn("readout_error", msg)
+        self.assertIn("T1_us", msg)
+
+    def test_sem_aviso_quando_os_tres_informados(self):
+        import warnings
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            compare(self._qc(), [self._hw(T2_us=200, T1_us=300, readout_error=0.01)], 0.99)
+            self.assertEqual(len(w), 0)
+
+    def test_from_calibrated_nao_dispara_aviso(self):
+        import warnings
+        hw = HardwareProfile.from_calibrated(HARDWARE_PROFILES["IBM_Heron_r2"])
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            compare(self._qc(), [hw], 0.99)
+            self.assertEqual(len(w), 0)
+
 
 class TestFeature8Visualizer(unittest.TestCase):
 
@@ -552,6 +642,95 @@ class TestDecoherenceFidelity(unittest.TestCase):
         r = self._surface(hw, qc)
         self.assertGreaterEqual(r.fidelity_circuit, 0.0)
         self.assertLessEqual(r.fidelity_circuit, 1.0)
+
+    def test_meets_fidelity_target_false_quando_decoerencia_colapsa_fidelidade(self):
+        """
+        v3.4.0: feasible=True só garante p_L <= p_L_target (erro de porta) --
+        não garante fidelity_circuit >= fidelity_target, porque readout_error
+        e a penalidade de T2_us entram DEPOIS dessa checagem. Achado
+        auditando rank() com T2_us ativado: resultados com fidelidade ~0%
+        apareciam marcados como "viáveis" sem nenhum aviso. meets_fidelity_target
+        é o campo que expõe essa distinção -- deve ser False aqui mesmo com
+        feasible=True."""
+        hw = HardwareProfile("ruidoso_lento", t_gate_ns=600e3, p_phys=0.005,
+                              topology="all-to-all", T2_us=100.0)
+        qc = QuantumCircuit(3)
+        qc.h(0); qc.cx(0, 1); qc.cx(1, 2)
+        r = self._surface(hw, qc)
+        self.assertTrue(r.feasible)
+        self.assertLess(r.fidelity_circuit, 0.01)
+        self.assertFalse(r.meets_fidelity_target,
+            "fidelidade colapsada por T2 não deveria contar como atingindo o alvo")
+
+    def test_meets_fidelity_target_true_no_caso_normal(self):
+        """Contraste com o teste acima: hardware limpo/rápido deve ter
+        meets_fidelity_target=True (não é sempre False por padrão)."""
+        hw = HardwareProfile("limpo", t_gate_ns=50, p_phys=0.0005, topology="grid")
+        r = self._surface(hw)
+        self.assertTrue(r.feasible)
+        self.assertTrue(r.meets_fidelity_target)
+
+
+class TestRankingDuasCamadas(unittest.TestCase):
+    """
+    v3.4.0: rank() não deixa mais uma combinação que não atinge o
+    fidelity_target pedido competir por #1 contra quem atinge -- antes,
+    o score ponderado (qubits/tempo/fidelidade) podia colocar uma opção
+    com fidelidade real ~0% acima de outra com fidelidade real ~30%, só
+    porque a primeira usava menos qubits (achado testando com T2_us
+    ativado em vários hardwares simultaneamente).
+    """
+
+    def test_quem_atinge_alvo_sempre_vem_antes_de_quem_nao_atinge(self):
+        qc = QuantumCircuit(2); qc.h(0); qc.cx(0, 1)
+        bom = HardwareProfile("Bom", t_gate_ns=50, p_phys=0.0005,
+                               topology="all-to-all", readout_error=0.001)
+        ruim = HardwareProfile("Ruim_lento", t_gate_ns=600e3, p_phys=0.005,
+                                topology="all-to-all", T2_us=100.0)
+        result = compare(qc, [bom, ruim], fidelity_target=0.99)
+        recs = rank(result)
+
+        self.assertTrue(recs)
+        primeiro_abaixo_do_alvo = next(
+            i for i, r in enumerate(recs) if not r.meets_fidelity_target
+        )
+        for r in recs[:primeiro_abaixo_do_alvo]:
+            self.assertTrue(r.meets_fidelity_target,
+                "nenhuma combinação que atinge o alvo deveria vir depois de uma que não atinge")
+        for r in recs[primeiro_abaixo_do_alvo:]:
+            self.assertFalse(r.meets_fidelity_target)
+
+    def test_camada_b_ordenada_so_por_fidelidade_nao_por_score_ponderado(self):
+        """
+        Regressão do achado real (v5): quando NENHUMA combinação atinge o
+        alvo, a ordem deve ser só por fidelidade decrescente -- não pelo
+        score ponderado de qubits/tempo, que produzia a inversão absurda
+        de uma opção com 0% de fidelidade batendo uma com ~30%.
+        """
+        qc = QuantumCircuit(2); qc.h(0); qc.cx(0, 1)
+        # Hardware ruim o bastante para que NENHUM código atinja 0.99,
+        # mas com fidelidades finais bem diferentes entre si.
+        hw = HardwareProfile("Ruim", t_gate_ns=400e3, p_phys=0.007,
+                              topology="all-to-all", T2_us=300.0)
+        result = compare(qc, [hw], fidelity_target=0.99)
+        recs = rank(result, weight_qubits=0.4, weight_time=0.4, weight_fidelity=0.2)
+
+        self.assertTrue(recs)
+        self.assertFalse(any(r.meets_fidelity_target for r in recs),
+            "pré-condição do teste: nenhuma combinação deveria atingir o alvo aqui")
+        fidelidades = [r.fidelity_circuit for r in recs]
+        self.assertEqual(fidelidades, sorted(fidelidades, reverse=True),
+            "Camada B deveria estar ordenada só por fidelidade decrescente")
+
+    def test_bottleneck_explica_o_motivo_na_camada_b(self):
+        qc = QuantumCircuit(2); qc.h(0); qc.cx(0, 1)
+        hw = HardwareProfile("Ruim", t_gate_ns=600e3, p_phys=0.005,
+                              topology="all-to-all", T2_us=100.0)
+        result = compare(qc, [hw], fidelity_target=0.99)
+        recs = rank(result)
+        self.assertTrue(all(not r.meets_fidelity_target for r in recs))
+        for r in recs:
+            self.assertIn("NÃO atinge fidelity_target", r.bottleneck)
 
 
 class TestInvarianteDestilacao(unittest.TestCase):

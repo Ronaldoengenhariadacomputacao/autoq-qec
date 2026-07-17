@@ -17,12 +17,16 @@ for i in range(2):
     qc.swap(i, 3 - i)
 
 # ── Definir hardwares para comparar ──────────────────────────────────
-hardwares = [
-    HardwareProfile("IBM_Eagle",     t_gate_ns=391,   p_phys=0.0062,  topology="heavy-hex"),
-    HardwareProfile("IBM_Heron",     t_gate_ns=100,   p_phys=0.003,   topology="heavy-hex"),
-    HardwareProfile("Quantinuum_H2", t_gate_ns=100e3, p_phys=0.0015,  topology="all-to-all"),
-    HardwareProfile("IonQ_Aria",     t_gate_ns=600e3, p_phys=0.0055,  topology="all-to-all"),
-]
+# from_calibrated() carrega T2_us/T1_us/readout_error reais automaticamente
+# -- sem isso, montar HardwareProfile só com t_gate_ns/p_phys/topology (como
+# este exemplo fazia antes) ignora decoerência por completo, ver "Two-tier
+# ranking" no README.
+hardwares = [HardwareProfile.from_calibrated(hw) for hw in [
+    HARDWARE_PROFILES["IBM_Eagle_r3"],
+    HARDWARE_PROFILES["IBM_Heron_r2"],
+    HARDWARE_PROFILES["Quantinuum_H2"],
+    HARDWARE_PROFILES["IonQ_Aria"],
+]]
 
 # ── Estimar recursos QEC — uma chamada ───────────────────────────────
 result = compare(qc, hardwares, fidelity_target=0.99)
@@ -33,13 +37,17 @@ prof = result["circuit_profile"]
 print(f"Circuito: {prof.n_logical_qubits}q lógicos | "
       f"{prof.n_physical_gates} portas físicas | profundidade {prof.depth_physical}")
 print()
-print(f"{'#':>3} {'Hardware':<18} {'Código':<22} {'Qubits':>7} {'Tempo(µs)':>11} {'Fidelidade':>11}")
-print("-" * 75)
+print(f"{'#':>3} {'Hardware':<25} {'Código':<22} {'Qubits':>7} {'Tempo(µs)':>11} {'Fidelidade':>11} {'Atinge alvo?':>13}")
+print("-" * 100)
 for r in recommendations:
     mark = " ← MELHOR" if r.rank == 1 else ""
-    print(f"{r.rank:>3} {r.hardware:<18} {r.code:<22} "
+    print(f"{r.rank:>3} {r.hardware:<25} {r.code:<22} "
           f"{r.total_physical_qubits:>7} {r.execution_time_us:>11.1f} "
-          f"{r.fidelity_circuit:>11.4f}{mark}")
+          f"{r.fidelity_circuit:>11.4f} {str(r.meets_fidelity_target):>13}{mark}")
+
+if not recommendations[0].meets_fidelity_target:
+    print("\n(Nenhuma combinação testada atinge fidelity_target=0.99 de verdade —"
+          " '← MELHOR' aqui é só a mais próxima, não uma resposta que cumpre o pedido.)")
 
 # ── Circuitos variacionais (VQE/QAOA) precisam de parâmetros vinculados ──
 # Exemplo 1: o erro esperado se você esquecer de vincular.

@@ -3,6 +3,67 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.4.0] - 2026-07-17
+
+Found auditing `rank()` output after enabling `T2_us` end-to-end: combinations
+with `fidelity_circuit` collapsed to near 0% (decoherence exceeding execution
+time) were still marked `feasible=True` and could outrank combinations with
+real, usable fidelity, purely on qubit/time economy — `rank()` had no concept
+of "this doesn't actually deliver what `fidelity_target` asked for."
+
+### Fixed
+- `feasible=True` only ever guaranteed the gate-error contribution to `p_L`
+  stayed under `p_L_target` — it never checked the final `fidelity_circuit`
+  (which also includes `readout_error` and the `T2_us` decoherence penalty)
+  against `fidelity_target`. A slow, QEC-syndrome-heavy combination on
+  short-`T2_us` hardware could be "feasible" while its real fidelity was
+  ~0%, with no signal anywhere that the target wasn't met.
+- `rank()` now builds two tiers instead of one flat ranking. Nothing is
+  excluded. Tier A (`meets_fidelity_target=True`) is ranked by the normal
+  weighted score (qubits/time/fidelity) — `#1` only ever comes from here.
+  Tier B (`meets_fidelity_target=False`) never outranks Tier A regardless of
+  weights, and is sorted purely by `fidelity_circuit` descending (closest to
+  target first) instead of the weighted score — qubit/time trade-offs are
+  meaningless for a combination that doesn't deliver the requested fidelity,
+  which is what previously let a 0%-fidelity option rank above a
+  30%-fidelity one.
+- Two README sentences overclaimed guarantees the code didn't provide:
+  `weight_fidelity`'s description implied fidelity always sits *above*
+  `fidelity_target`, and "What the tests check" implied `p_L ≤ p_L_target`
+  covered the full fidelity promise. Both corrected to point at the new
+  `meets_fidelity_target` field/section.
+
+### Added
+- `CodeResult.meets_fidelity_target` / `Recommendation.meets_fidelity_target`
+  (`bool`, only meaningful when `feasible=True`): `True` iff
+  `fidelity_circuit >= fidelity_target`. Check this before trusting `#1` as
+  an actual answer — if it's `False`, nothing tested met the request.
+- `compare()`'s return dict now includes `"fidelity_target"` (the value
+  passed in), used internally by `rank()` to build the shortfall message in
+  `Recommendation.bottleneck` for Tier B entries.
+- `HardwareProfile.from_calibrated(cal)` — builds a `HardwareProfile` from a
+  `CalibratedHardware` (e.g. `HARDWARE_PROFILES["IBM_Heron_r2"]`), carrying
+  over `T1_us`/`T2_us`/`readout_error` automatically. Exists because the
+  documented Quickstart/`example.py` pattern of hand-copying only
+  `t_gate_ns`/`p_phys`/`topology` silently dropped `T2_us` even when real
+  calibrated values existed in `HARDWARE_PROFILES` — every built-in profile
+  already has real `T2_us`, but nothing carried it into `HardwareProfile`
+  before. README Quickstart and `example.py` updated to use it.
+- `estimate()`/`compare()` now emit a `UserWarning` when a `HardwareProfile`
+  is missing `readout_error`/`T1_us`/`T2_us` (i.e. still at the optimistic
+  default), listing only the fields actually still missing (with a short
+  description of what each one does) — set one, and it drops out of the
+  message; set all three (or use `from_calibrated()`), and the warning
+  stops entirely.
+- `HardwareProfile.__post_init__` now rejects zero/negative `t_gate_ns`,
+  `p_phys`, `T1_us`, `T2_us`, `t_meas_ns`, and `readout_error` outside
+  `[0, 1)` with a clear `ValueError`. Found immediately after auditing
+  `meets_fidelity_target`: these fields had no validation at all —
+  `t_gate_ns=0` silently produced `execution_time_us=0.0`, and
+  `readout_error=5.0` silently produced `fidelity_circuit` above `1.0`
+  (outside the valid probability range the test suite already asserted
+  `fidelity_circuit` should never leave, for less pathological inputs).
+
 ## [3.3.4] - 2026-07-16
 
 Found by an end-to-end user-simulation test (fresh venv, `pip install autoq-qec`

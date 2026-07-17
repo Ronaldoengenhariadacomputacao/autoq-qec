@@ -34,14 +34,21 @@ from autoq_qec import HARDWARE_PROFILES, CalibratedHardware, HardwareProfile
 circuit = QuantumCircuit(4)
 circuit.h(0); circuit.cx(0,1); circuit.cx(1,2); circuit.cx(2,3)
 
-# Hardware profiles (built-in or custom). readout_error is optional
-# (defaults to 0.0) but recommended — omitting it overestimates fidelity,
-# since it ignores measurement error entirely (see "Physical models" below).
-hardwares = [
-    HardwareProfile("IBM_Eagle",     t_gate_ns=391,   p_phys=0.0062, topology="heavy-hex", readout_error=0.014),
-    HardwareProfile("IBM_Heron",     t_gate_ns=100,   p_phys=0.003,  topology="heavy-hex", readout_error=0.009),
-    HardwareProfile("Quantinuum_H2", t_gate_ns=100e3, p_phys=0.0015, topology="all-to-all", readout_error=0.0015),
-]
+# Hardware profiles: built-in (recommended — carries real readout_error/T1_us/
+# T2_us automatically) or custom, built by hand for hardware not in the list.
+hardwares = [HardwareProfile.from_calibrated(hw) for hw in [
+    HARDWARE_PROFILES["IBM_Eagle_r3"],
+    HARDWARE_PROFILES["IBM_Heron_r2"],
+    HARDWARE_PROFILES["Quantinuum_H2"],
+]]
+
+# Custom hardware (not in HARDWARE_PROFILES): build HardwareProfile by hand.
+# readout_error/T1_us/T2_us are all optional (default 0.0/None) but
+# recommended — omitting readout_error overestimates fidelity (see "Physical
+# models" below); omitting T2_us skips the decoherence penalty entirely
+# (see "Two-tier ranking" below for why that matters for rank()).
+# hardwares = [HardwareProfile("MyChip", t_gate_ns=200, p_phys=0.004,
+#                               topology="heavy-hex", readout_error=0.01, T2_us=150)]
 
 # One call — returns all codes × all hardwares
 result = compare(circuit, hardwares, fidelity_target=0.99)
@@ -53,8 +60,10 @@ recommendations = rank(result, hardware_calibrations=HARDWARE_PROFILES)
 for r in recommendations[:3]:
     print(f"#{r.rank} {r.hardware} + {r.code}: "
           f"{r.total_physical_qubits}q, {r.execution_time_us:.1f}µs, "
-          f"fidelity={r.fidelity_circuit:.4f}")
+          f"fidelity={r.fidelity_circuit:.4f}, meets_target={r.meets_fidelity_target}")
 ```
+
+Using real calibrated `T2_us` (via `from_calibrated()` above), this particular circuit/hardware combination doesn't actually clear `fidelity_target=0.99` on any of the 3 built-in profiles — `meets_target` prints `False` for all of them. That's the point of `meets_fidelity_target`: it tells you honestly when nothing tested delivers what you asked for, instead of silently ranking the least-bad option as if it were a real answer. Try `fidelity_target=0.9` or a deeper/wider circuit to see `meets_target=True` results.
 
 ## `rank()` weights
 
@@ -64,9 +73,40 @@ for r in recommendations[:3]:
 |---|---|---|---|
 | `weight_qubits` | `0.5` | Total physical qubits the hardware+code combination needs | Combinations that save qubits, even if slower or with less fidelity margin |
 | `weight_time` | `0.3` | Execution time (µs) the combination takes | Fast combinations, even if they need more qubits |
-| `weight_fidelity` | `0.2` | How far predicted fidelity sits above your `fidelity_target` | Combinations with more fidelity safety margin, even if costlier in qubits/time |
+| `weight_fidelity` | `0.2` | Fidelity margin *among combinations that already meet `fidelity_target`* (see "Two-tier ranking" below — this weight never lets a combination below your target outrank one that meets it) | Combinations with more fidelity safety margin, even if costlier in qubits/time |
 
 Weights don't need to sum to 1.0 — they're normalized automatically (the ratio between them is what matters, not the absolute values). **The default weights genuinely change the outcome — verified empirically**: the same circuit/hardware list ranked with `weight_time=0.9` instead of the default reordered the ranking substantially (a combination that ranked #3 by default dropped out of the top 5 entirely, replaced by a faster-but-more-qubit-hungry option). Qubits, time, and fidelity are different units with no natural common scale — the weights *are* the exchange rate between them, and the right rate depends on your actual constraints (e.g., queue-time-billed access cares more about time; qubit-scarce hardware cares more about qubit count). There is no single "objective" ranking — pass weights that reflect your real situation.
+
+### Two-tier ranking: `meets_fidelity_target`
+
+A QEC code being "feasible" (a valid distance `d` exists for your `p_phys`) only guarantees the *gate-error* contribution to `p_L` stays under budget. It does **not** guarantee the final `fidelity_circuit` — which also multiplies in `readout_error` and, if you set `T2_us`, a decoherence penalty (`exp(-execution_time_us / T2_us)`) — actually reaches your `fidelity_target`. A slow combination (e.g. deep QEC syndrome-extraction overhead on a long-`t_gate_ns` hardware) can be "feasible" by the gate-error criterion alone while its real fidelity, once decoherence is accounted for, has collapsed to near zero.
+
+Each `Recommendation` (and the underlying `CodeResult`) has a `meets_fidelity_target: bool` field for exactly this: `True` only when `fidelity_circuit >= fidelity_target`. `rank()` uses it to build two tiers, **without excluding anything**:
+
+- **Tier A** (`meets_fidelity_target=True`): ranked normally, by the weighted score above. `#1` only ever comes from this tier.
+- **Tier B** (`meets_fidelity_target=False`): never outranks Tier A, regardless of weights — qubits/time trade-offs are meaningless for a combination that doesn't deliver the fidelity you asked for. Sorted purely by `fidelity_circuit` descending (closest to the target first), with `bottleneck` explaining the shortfall (e.g. `"NÃO atinge fidelity_target=0.9900 (fidelidade real: 0.0000) — ..."`).
+
+If Tier A is empty (nothing tested actually reaches your target), `rank()` still returns Tier B — check `meets_fidelity_target` before trusting `#1` as an actual answer to your request, not just "the best of what was tried."
+
+```python
+recommendations = rank(result)
+if not recommendations[0].meets_fidelity_target:
+    print("Nenhuma combinação testada atinge o fidelity_target pedido.")
+```
+
+### Getting real decoherence data: `HardwareProfile.from_calibrated()`
+
+`T2_us` defaults to `None` (no decoherence penalty applied) — and it's easy to lose accidentally: hand-building a `HardwareProfile` (as the Quickstart above does) by copying only `t_gate_ns`/`p_phys`/`topology`/`readout_error` silently drops `T2_us`/`T1_us` even when real values exist. The built-in `HARDWARE_PROFILES` (`CalibratedHardware` objects) already have real `T2_us` for every entry — use `from_calibrated()` to carry all of it over at once instead of copying fields by hand:
+
+```python
+from autoq_qec import HardwareProfile
+from autoq_qec.real_hardware import HARDWARE_PROFILES
+
+hw = HardwareProfile.from_calibrated(HARDWARE_PROFILES["IBM_Heron_r2"])
+# hw.T2_us, hw.T1_us, hw.readout_error are all populated — nothing to remember
+```
+
+If you build a `HardwareProfile` by hand and leave `readout_error`/`T1_us`/`T2_us` at their defaults, `compare()`/`estimate()` emit a `UserWarning` naming exactly which of the three are still missing (with a short description of what each one does) — set one and it drops out of the message; set (or load via `from_calibrated()`) all three and the warning stops. Zero or negative values for `t_gate_ns`, `p_phys`, `T1_us`, `T2_us`, or `t_meas_ns` (and `readout_error` outside `[0, 1)`) raise `ValueError` immediately — they have no physical meaning, and previously produced silently wrong results (`t_gate_ns=0` gave `execution_time_us=0.0`; `readout_error=5.0` gave `fidelity_circuit` above `1.0`).
 
 ```python
 # 1. Default: prioritize qubit savings
@@ -211,18 +251,20 @@ plot_tradeoff(result, output="tradeoff.png")  # log-log qubits × time, color = 
 ## Test
 
 ```bash
-pytest tests/ -v   # 99 tests, all verify physics not arithmetic
+pytest tests/ -v   # 123 tests, all verify physics not arithmetic
 ```
 
 ## What the tests check (unlike most QEC tools)
 
 - `p ≥ threshold` raises `ValueError`, not wrong overhead
 - `d` is always odd for Surface Code (rotated lattice requirement)
-- `p_L ≤ p_L_target` guaranteed after distance selection
+- `p_L ≤ p_L_target` guaranteed after distance selection (gate-error contribution only — see "Two-tier ranking" above for what this does *not* guarantee about the final `fidelity_circuit`)
 - Noisier hardware requires larger `d` (monotonicity)
 - `estimate()` raises `ValueError` on a zero-gate `CircuitProfile` (e.g. destroyed by transpiler) — not `extract_circuit_profile()` itself, which returns a valid zero-gate profile for an actually empty circuit
 - `extract_circuit_profile()` raises `ValueError` on circuits with unbound parameters — see "Variational circuits" above
 - Fidelity scales correctly with `t_gate`
+- `meets_fidelity_target=False` when decoherence (`T2_us`) collapses `fidelity_circuit` below `fidelity_target`, even though the code is still `feasible` by the gate-error criterion alone
+- `rank()` never lets a combination below `fidelity_target` outrank one that meets it, regardless of weights
 
 ## Author
 

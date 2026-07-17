@@ -313,6 +313,73 @@ class TestCasosDeLimite(unittest.TestCase):
             f"QFT(50) levou {duracao:.1f}s — possível regressão de performance")
 
 
+class TestHardwareProfileValidacao(unittest.TestCase):
+    """
+    v3.4.0: HardwareProfile aceitava qualquer valor sem checagem -- t_gate_ns=0
+    gerava execution_time_us=0.0 sem erro; readout_error fora de [0,1]
+    gerava fidelity_circuit > 1.0 (achado testando valores de propósito
+    fora do domínio físico depois da auditoria de meets_fidelity_target).
+    __post_init__ agora rejeita cedo, com ValueError claro.
+    """
+
+    def _valido(self, **overrides):
+        base = dict(name="X", t_gate_ns=100, p_phys=0.001, topology="grid")
+        base.update(overrides)
+        return base
+
+    def test_t_gate_ns_zero_rejeitado(self):
+        with self.assertRaises(ValueError):
+            HardwareProfile(**self._valido(t_gate_ns=0))
+
+    def test_t_gate_ns_negativo_rejeitado(self):
+        with self.assertRaises(ValueError):
+            HardwareProfile(**self._valido(t_gate_ns=-50))
+
+    def test_p_phys_zero_rejeitado(self):
+        with self.assertRaises(ValueError):
+            HardwareProfile(**self._valido(p_phys=0))
+
+    def test_p_phys_negativo_rejeitado(self):
+        with self.assertRaises(ValueError):
+            HardwareProfile(**self._valido(p_phys=-0.01))
+
+    def test_readout_error_acima_de_um_rejeitado(self):
+        with self.assertRaises(ValueError):
+            HardwareProfile(**self._valido(readout_error=5.0))
+
+    def test_readout_error_negativo_rejeitado(self):
+        with self.assertRaises(ValueError):
+            HardwareProfile(**self._valido(readout_error=-0.5))
+
+    def test_readout_error_zero_aceito(self):
+        """0.0 é o default documentado (leitura perfeita) -- válido, não erro."""
+        HardwareProfile(**self._valido(readout_error=0.0))
+
+    def test_t1_us_zero_rejeitado(self):
+        with self.assertRaises(ValueError):
+            HardwareProfile(**self._valido(T1_us=0))
+
+    def test_t1_us_negativo_rejeitado(self):
+        with self.assertRaises(ValueError):
+            HardwareProfile(**self._valido(T1_us=-100))
+
+    def test_t2_us_zero_rejeitado(self):
+        with self.assertRaises(ValueError):
+            HardwareProfile(**self._valido(T2_us=0))
+
+    def test_t2_us_negativo_rejeitado(self):
+        with self.assertRaises(ValueError):
+            HardwareProfile(**self._valido(T2_us=-100))
+
+    def test_t1_us_none_aceito(self):
+        """None é o sentinel documentado de 'não informado' -- válido, não erro."""
+        HardwareProfile(**self._valido(T1_us=None))
+
+    def test_t_meas_ns_zero_rejeitado(self):
+        with self.assertRaises(ValueError):
+            HardwareProfile(**self._valido(t_meas_ns=0))
+
+
 class TestConectividadeCoupling(unittest.TestCase):
     """
     v3.2.4: compare() agora transpila cada hardware com o coupling_map real
