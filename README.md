@@ -159,6 +159,24 @@ A ~78× time spread and a ~20× qubit spread between the extremes — none of th
 
 `rank_by_metric()` inherits the same two-tier logic as `rank()`: within Tier A (`meets_fidelity_target=True`), each list is genuinely sorted by its own metric — `["qubits"]` by qubit count, `["tempo"]` by time. But if *nothing* tested reaches `fidelity_target`, all three lists fall entirely into Tier B and get sorted by `fidelity_circuit` instead, regardless of the list's name — check `meets_fidelity_target` on the entries before assuming `["qubits"][0]` is actually the qubit-cheapest option.
 
+### Comparing across vendors — weights don't guarantee a "neutral" answer
+
+`rank()`'s weights let *you* pick what matters, but that's configurability, not neutrality — the ranking still reflects each hardware's real physical numbers (`p_phys`, `T1_us`, `T2_us`, gate times), and different circuits genuinely favor different vendors depending on which weight you emphasize. There's no fixed pattern where one vendor "usually wins" a given preset — verified empirically: ranking a 4-qubit GHZ circuit across `IBM_Heron_r2`, `Quantinuum_H2`, and `IonQ_Aria` (all via `HardwareProfile.from_calibrated()`) puts `Quantinuum_H2` at `#1` under the default preset, the fidelity-focused preset (`weight_fidelity=0.8`), *and* the speed-focused preset (`weight_time=0.8`) — not the "IBM wins by default, ion-trap wins on fidelity" pattern you might expect. A different circuit can flip this entirely.
+
+```python
+hardwares = [HardwareProfile.from_calibrated(hw) for hw in [
+    HARDWARE_PROFILES["IBM_Heron_r2"],
+    HARDWARE_PROFILES["Quantinuum_H2"],
+    HARDWARE_PROFILES["IonQ_Aria"],
+]]
+result = compare(circuit, hardwares, fidelity_target=0.9)
+
+for r in rank(result, weight_qubits=0.1, weight_time=0.1, weight_fidelity=0.8)[:3]:
+    print(f"#{r.rank} {r.hardware} + {r.code}: {r.total_physical_qubits}q, fid={r.fidelity_circuit:.4f}")
+```
+
+The practical takeaway: always compare against **your actual circuit** with **multiple real hardware profiles** (`HARDWARE_PROFILES`, not just one vendor) before trusting a `#1` — and pick weights that match your real constraints (see the presets table above), not weights chosen to make a particular hardware win.
+
 **Variational circuits (VQE, QAOA, etc.) must have parameters bound first.** `RealAmplitudes`, `EfficientSU2`, `QAOAAnsatz`, and similar templates carry symbolic parameters until you call `assign_parameters()` — T-count depends on the actual rotation angles, which don't exist in a symbolic circuit. Passing an unbound circuit raises a clear `ValueError` (as of 3.2.2):
 
 ```python
@@ -189,7 +207,7 @@ sim = noise_model_from_ibm("ibm_brisbane", token="YOUR_IBM_TOKEN")
 | Code | Model | Reference |
 |---|---|---|
 | Surface Code | $p_L \approx A(p/p_{th})^{(d+1)/2}$, $q=2d^2-1$, overhead $=d^3$ | Fowler et al., PRA 86, 032324 (2012) |
-| Floquet Code | $p_L \approx 0.07(p/p_{th})^{(d+1)/2}$, $q=4d^2+8(d-1)$, overhead $=\lfloor d/2\rfloor$ | Gidney & Fowler, arXiv:2202.11829 |
+| Floquet Code | $p_L \approx 0.07(p/p_{th})^{(d+1)/2}$, $q=4d^2+8(d-1)$, overhead $=\lfloor d/2\rfloor$ | Paetznick, Knapp, Delfosse, Bauer, Haah, Hastings & da Silva, arXiv:2202.11829 |
 | Bacon-Shor | $p_L \approx (p/p_{th})^d$, $q=d^2$, overhead $=d\cdot2(d-1)$ | Aliferis & Cross, PRL 98, 220502 (2007); overhead: Li, Miller & Brown, arXiv:1804.01127 (2018) + Aliferis PhD thesis, quant-ph/0703230, p.93 |
 | Steane [[7,1,3]] | $p_L \approx 21p^2$, $q=13$, overhead $=6$ (fixo) | Steane, PRL 77, 793 (1996) |
 
@@ -253,7 +271,7 @@ plot_tradeoff(result, output="tradeoff.png")  # log-log qubits × time, color = 
 ## Test
 
 ```bash
-pytest tests/ -v   # 123 tests, all verify physics not arithmetic
+pytest tests/ -v   # 124 tests, all verify physics not arithmetic
 ```
 
 ## What the tests check (unlike most QEC tools)
