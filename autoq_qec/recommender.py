@@ -15,8 +15,10 @@ class Recommendation:
     total_physical_qubits: int
     execution_time_us: float
     fidelity_circuit: float
-    score: float          # menor = melhor (normalizado)
-    bottleneck: str       # o que domina o custo
+    score: float          # menor = melhor (normalizado); não decide a ordem
+                           # entre camadas, só dentro de cada uma (ver rank())
+    bottleneck: str       # o que domina o custo; para meets_fidelity_target=False,
+                           # também explica o motivo do não-atingimento do alvo
     magic_state_qubits: Optional[int] = None
     magic_state_factories: Optional[int] = None
     magic_state_t_state_error: Optional[float] = None
@@ -52,9 +54,16 @@ def rank(compare_result: dict,
          weight_time: float = 0.3,
          weight_fidelity: float = 0.2) -> list[Recommendation]:
     """
-    Rankeia combinações hardware+código por score ponderado.
-    Apenas combinações viáveis entram no ranking.
+    Rankeia combinações hardware+código em duas camadas. Apenas combinações
+    feasible=True entram; nenhuma é excluída por causa da fidelidade.
     Weights: soma deve ser 1.0 (normaliza internamente se não for).
+
+    Camada A (meets_fidelity_target=True): ranking ponderado normal por
+    score (qubits/tempo/fidelidade) -- #1 só vem daqui.
+    Camada B (meets_fidelity_target=False): nunca fica acima da Camada A,
+    não importa os pesos; ordenada só por fidelity_circuit decrescente,
+    já que qubits/tempo baratos não têm valor numa combinação que não
+    entrega a fidelidade pedida. Ver "Two-tier ranking" no README.
 
     Se `hardware_calibrations` for fornecido (dict nome→CalibratedHardware,
     ex. HARDWARE_PROFILES), combinações que violem o limite de T1
@@ -240,13 +249,21 @@ def rank_by_metric(compare_result: dict, hardware_calibrations: dict = None
     nenhum, então não sofre desse problema.
 
     Reaproveita rank() internamente com peso 1.0 isolado em cada métrica
-    (as outras duas em 0.0) — o score fica determinado inteiramente por
+    (as outras duas em 0.0) — dentro da Camada A (quem atinge
+    fidelity_target), isso faz o score ficar determinado inteiramente por
     aquela métrica, então ordenar por score == ordenar pela métrica pura.
-    Usa a mesma checagem de viabilidade/T1 que rank() normal, sem duplicar
-    lógica.
+    Usa a mesma checagem de viabilidade/T1 e o mesmo ranking em duas
+    camadas que rank() normal, sem duplicar lógica -- inclusive a
+    consequência disso: se NENHUMA combinação atinge fidelity_target, as
+    três listas (mesmo "qubits" e "tempo") caem inteiras na Camada B e
+    saem ordenadas por fidelidade, não pela métrica pedida -- confira
+    meets_fidelity_target antes de assumir que uma lista está de fato
+    ordenada pelo critério do seu nome.
 
     Retorna {"qubits": [...], "tempo": [...], "fidelidade": [...]},
-    cada lista já ordenada (melhor primeiro) só por aquele critério.
+    cada lista ordenada (melhor primeiro) só por aquele critério dentro
+    da Camada A; a Camada B, quando presente, vem depois ordenada por
+    fidelidade em todas as três listas.
     """
     return {
         "qubits": rank(compare_result, hardware_calibrations,

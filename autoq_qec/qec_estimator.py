@@ -342,6 +342,16 @@ def estimate(circuit_profile: CircuitProfile,
 
     p_L_per_gate = (1 - fidelity_target) / n_physical_gates
 
+    CodeResult.feasible=True garante só que esse p_L_target foi atingido
+    (erro de porta); CodeResult.meets_fidelity_target=True garante que
+    fidelity_circuit (que também inclui readout_error e a penalidade de
+    T2_us, se informado) realmente é >= fidelity_target -- os dois podem
+    divergir (ver "Two-tier ranking" no README).
+
+    Emite UserWarning se HardwareProfile estiver sem readout_error/T1_us/
+    T2_us (ver _warn_incomplete_hardware_profile) -- não bloqueia a
+    execução, só avisa que fidelity_circuit pode estar superestimada.
+
     model_magic_state_distillation=False (padrão) preserva o comportamento
     anterior: total_physical_qubits/execution_time_us não incluem o custo
     de destilação de estado mágico (T-factories) — ver "Known limitation"
@@ -605,8 +615,9 @@ def compare(circuit, hardware_list: list[HardwareProfile],
             fidelity_target: float = 0.99,
             model_magic_state_distillation: bool = False):
     """
-    API principal: recebe circuito Qiskit + lista de hardwares,
-    devolve dicionário hardware_name → [CodeResult].
+    API principal: recebe circuito Qiskit + lista de hardwares, devolve
+    {"circuit_profile": CircuitProfile, "results": {hw_name: [CodeResult]},
+    "hardware_profiles": {hw_name: HardwareProfile}, "fidelity_target": float}.
 
     Cada hardware é transpilado com o coupling_map real da sua topology
     (v3.2.4) — hardware de conectividade limitada (heavy-hex, linear, grid)
@@ -615,6 +626,11 @@ def compare(circuit, hardware_list: list[HardwareProfile],
     sendo o perfil topology-agnostic (all-to-all), mantido por compatibilidade
     e para uso exibicional; as estimativas em output["results"] usam o
     perfil específico de cada hardware internamente.
+
+    output["fidelity_target"] (v3.4.0) carrega o fidelity_target usado nesta
+    chamada -- rank() lê esse valor pra montar a mensagem de "não atinge o
+    alvo" em Recommendation.bottleneck (ver meets_fidelity_target em
+    CodeResult/Recommendation, e "Two-tier ranking" no README).
     """
     profile = extract_circuit_profile(circuit)
     output = {"circuit_profile": profile, "results": {}, "hardware_profiles": {},

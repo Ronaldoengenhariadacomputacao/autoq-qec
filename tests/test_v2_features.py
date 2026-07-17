@@ -835,6 +835,29 @@ class TestRankByMetric(unittest.TestCase):
         fid_vals = [r.fidelity_circuit for r in por_metrica["fidelidade"]]
         self.assertEqual(fid_vals, sorted(fid_vals, reverse=True))
 
+    def test_todas_as_listas_caem_para_fidelidade_quando_ninguem_atinge_alvo(self):
+        """
+        v3.4.0: rank_by_metric() herda o ranking em duas camadas de rank().
+        Se NENHUMA combinação atinge fidelity_target, as três listas
+        (inclusive "qubits" e "tempo") caem inteiras na Camada B e saem
+        ordenadas por fidelidade, não pela métrica do próprio nome --
+        comportamento que o docstring antigo não deixava claro.
+        """
+        qc = QuantumCircuit(2); qc.h(0); qc.cx(0, 1)
+        hw = HardwareProfile("Ruim", t_gate_ns=400e3, p_phys=0.007,
+                              topology="all-to-all", T2_us=300.0)
+        result = compare(qc, [hw], fidelity_target=0.99)
+        por_metrica = rank_by_metric(result)
+
+        for chave in ("qubits", "tempo", "fidelidade"):
+            lista = por_metrica[chave]
+            self.assertTrue(lista)
+            self.assertFalse(any(r.meets_fidelity_target for r in lista),
+                f"pré-condição do teste: '{chave}' deveria estar inteira na Camada B")
+            fid_vals = [r.fidelity_circuit for r in lista]
+            self.assertEqual(fid_vals, sorted(fid_vals, reverse=True),
+                f"lista '{chave}' deveria cair para ordenação por fidelidade, não pela sua própria métrica")
+
     def test_revela_trade_off_escondido_pelo_rank_ponderado(self):
         """
         Regressão do achado desta sessão: um circuito onde os 5 presets de

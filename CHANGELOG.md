@@ -64,6 +64,18 @@ of "this doesn't actually deliver what `fidelity_target` asked for."
   (outside the valid probability range the test suite already asserted
   `fidelity_circuit` should never leave, for less pathological inputs).
 
+### Documentation
+- `rank_by_metric()`'s docstring and the README both overclaimed that each
+  returned list (`"qubits"`, `"tempo"`, `"fidelidade"`) is always sorted by
+  its own name. That's only true within Tier A — if *nothing* tested meets
+  `fidelity_target`, all three lists fall into Tier B and get sorted by
+  `fidelity_circuit` instead (inherited from `rank()`'s two-tier logic).
+  Not a behavior change, just documenting what `rank_by_metric()` already
+  did — new regression test added to lock it in.
+- README restructured: the `rank()` weights presets/table had gotten split
+  apart by the new "Two-tier ranking"/`from_calibrated()` sections landing
+  in between them; moved back next to each other.
+
 ## [3.3.4] - 2026-07-16
 
 Found by an end-to-end user-simulation test (fresh venv, `pip install autoq-qec`
