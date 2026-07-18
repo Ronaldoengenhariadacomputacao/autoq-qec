@@ -222,6 +222,28 @@ class TestFeature7AlgorithmEstimator(unittest.TestCase):
             with self.assertRaises(ValueError):
                 AlgorithmEstimator.grover(N)
 
+    def test_qft_n_invalido_rejeitado(self):
+        """n<=0 não tem QFT a estimar: deve levantar ValueError, não
+        devolver n_logical_qubits negativo silenciosamente (bug real
+        confirmado na v3.4.0 publicada: qft(-3) retornava sem erro)."""
+        for n in [0, -3]:
+            with self.assertRaises(ValueError):
+                AlgorithmEstimator.qft(n)
+
+    def test_vqe_entradas_invalidas_rejeitadas(self):
+        """n_qubits<=0 ou depth<=0 não têm VQE a estimar: devem levantar
+        ValueError, não devolver t_count_estimate negativo silenciosamente
+        (bug real confirmado na v3.4.0 publicada: vqe(-3, 5) retornava
+        t_count_estimate=-60 sem erro)."""
+        with self.assertRaises(ValueError):
+            AlgorithmEstimator.vqe(-3, 5)
+        with self.assertRaises(ValueError):
+            AlgorithmEstimator.vqe(5, -2)
+        with self.assertRaises(ValueError):
+            AlgorithmEstimator.vqe(0, 5)
+        with self.assertRaises(ValueError):
+            AlgorithmEstimator.vqe(5, 0)
+
     def test_shor_escala_cubica(self):
         e1 = AlgorithmEstimator.shor(15)    # n=4
         e2 = AlgorithmEstimator.shor(255)   # n=8
@@ -431,6 +453,37 @@ class TestFeature8Visualizer(unittest.TestCase):
         result = compare(qc, hw, 0.99)
         with self.assertRaises(ValueError):
             plot_tradeoff(result)
+
+    def test_ax_existente_preserva_titulo_do_caller(self):
+        """Quando o caller passa um Axes já com título (dono da figura),
+        plot_tradeoff não deve sobrescrevê-lo silenciosamente (bug real
+        confirmado na v3.4.0 publicada)."""
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from autoq_qec.visualizer import plot_tradeoff
+        qc = QuantumCircuit(2); qc.h(0); qc.cx(0, 1)
+        hw = [HardwareProfile("IBM", 391, 0.001, "heavy-hex")]
+        result = compare(qc, hw, 0.99)
+        fig, ax = plt.subplots()
+        ax.set_title("Meu título customizado")
+        returned = plot_tradeoff(result, ax=ax)
+        self.assertIs(returned, ax)
+        self.assertEqual(ax.get_title(), "Meu título customizado")
+        plt.close(fig)
+
+    def test_ax_existente_sem_titulo_recebe_default(self):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from autoq_qec.visualizer import plot_tradeoff
+        qc = QuantumCircuit(2); qc.h(0); qc.cx(0, 1)
+        hw = [HardwareProfile("IBM", 391, 0.001, "heavy-hex")]
+        result = compare(qc, hw, 0.99)
+        fig, ax = plt.subplots()
+        plot_tradeoff(result, ax=ax)
+        self.assertTrue(len(ax.get_title()) > 0)
+        plt.close(fig)
 
 
 class _FakeParam:

@@ -3,6 +3,30 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.4.1] - 2026-07-18
+
+Found by user-as-real-user testing round against the published PyPI package
+(clean conda env, real install, not the editable dev tree) — targeted at
+surface area with zero or thin test coverage.
+
+### Fixed
+- `AlgorithmEstimator.vqe()`/`qft()` accepted `n_qubits<=0`/`depth<=0`/`n<=0`
+  silently, unlike `shor()`/`grover()` (which already raised `ValueError` for
+  invalid input). `vqe(-3, 5)` returned `t_count_estimate=-60` — a negative
+  T-count, physically meaningless. Both methods now raise `ValueError` for
+  non-positive input, matching the existing `shor`/`grover` precedent (no
+  upper bound, same as those two — a large value is just a large estimate,
+  not an invalid one).
+- `plot_tradeoff(ax=<existing Axes>)` silently overwrote a title the caller
+  had already set on that `Axes`, contradicting the "caller owns the figure"
+  contract that already held for colorbars/`show()`/`close()` in that branch.
+  Now only sets the default title when the passed `ax` doesn't already have
+  one.
+- `HardwareProfile.p_phys` only rejected values `<= 0`, unlike
+  `readout_error` (which was already bounded to `[0, 1)`). `p_phys=1.5` (a
+  150% gate error) was accepted silently. Now validated as `(0, 1)`, same
+  treatment as `readout_error`.
+
 ## [3.4.0] - 2026-07-17
 
 Found auditing `rank()` output after enabling `T2_us` end-to-end: combinations

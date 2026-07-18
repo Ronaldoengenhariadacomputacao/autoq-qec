@@ -74,6 +74,8 @@ class AlgorithmEstimator:
         QFT em n qubits.
         T-count ≈ n²/2 (rotações CP com síntese Solovay-Kitaev).
         """
+        if n <= 0:
+            raise ValueError(f"QFT requer n > 0 qubits (n={n})")
         t_count = n*n // 2
         return AlgorithmEstimate(
             algorithm=f"QFT n={n}",
@@ -90,6 +92,10 @@ class AlgorithmEstimator:
         VQE com n_qubits e profundidade depth.
         T-count ≈ 4 · n · depth (Trotterizado).
         """
+        if n_qubits <= 0:
+            raise ValueError(f"VQE requer n_qubits > 0 (n_qubits={n_qubits})")
+        if depth <= 0:
+            raise ValueError(f"VQE requer depth > 0 (depth={depth})")
         t_count = 4 * n_qubits * depth
         return AlgorithmEstimate(
             algorithm=f"VQE n={n_qubits} d={depth}",

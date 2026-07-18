@@ -46,8 +46,8 @@ class HardwareProfile:
         """
         if self.t_gate_ns <= 0:
             raise ValueError(f"t_gate_ns deve ser > 0, recebido {self.t_gate_ns}")
-        if self.p_phys <= 0:
-            raise ValueError(f"p_phys deve ser > 0, recebido {self.p_phys}")
+        if not (0 < self.p_phys < 1):
+            raise ValueError(f"p_phys deve estar em (0, 1), recebido {self.p_phys}")
         if not (0 <= self.readout_error < 1):
             raise ValueError(f"readout_error deve estar em [0, 1), recebido {self.readout_error}")
         if self.T1_us is not None and self.T1_us <= 0:

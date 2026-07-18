@@ -343,6 +343,15 @@ class TestHardwareProfileValidacao(unittest.TestCase):
         with self.assertRaises(ValueError):
             HardwareProfile(**self._valido(p_phys=-0.01))
 
+    def test_p_phys_acima_de_um_rejeitado(self):
+        """p_phys é uma probabilidade de erro: >=1 não tem significado
+        físico (bug real confirmado na v3.4.0 publicada: p_phys=1.5 era
+        aceito silenciosamente, sem o teto que readout_error já tinha)."""
+        with self.assertRaises(ValueError):
+            HardwareProfile(**self._valido(p_phys=1.5))
+        with self.assertRaises(ValueError):
+            HardwareProfile(**self._valido(p_phys=1.0))
+
     def test_readout_error_acima_de_um_rejeitado(self):
         with self.assertRaises(ValueError):
             HardwareProfile(**self._valido(readout_error=5.0))

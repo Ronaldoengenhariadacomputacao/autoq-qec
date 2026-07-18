@@ -63,7 +63,8 @@ def plot_tradeoff(compare_result: dict, output: str = None, ax=None):
     ax.set_yscale("log")
     ax.set_xlabel("Qubits físicos totais")
     ax.set_ylabel("Tempo de execução (µs)")
-    ax.set_title("AutoQ QEC — trade-off qubits × tempo × fidelidade")
+    if created_fig or not ax.get_title():
+        ax.set_title("AutoQ QEC — trade-off qubits × tempo × fidelidade")
 
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
