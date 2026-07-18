@@ -185,7 +185,12 @@ def _steane_model(p_phys: float, p_L_target: float,
 def _floquet_code_model(p_phys: float, p_L_target: float,
                         p_th: float = 0.01, A: float = 0.07):
     """
-    Floquet Code planar (4.8.8) — Gidney & Fowler, arXiv:2202.11829
+    Floquet Code planar (4.8.8) — Paetznick, Knapp, Delfosse, Bauer, Haah,
+    Hastings & da Silva, "Performance of planar Floquet codes with
+    Majorana-based qubits", arXiv:2202.11829 (autoria corrigida: estava
+    atribuído a "Gidney & Fowler", citação errada — os autores reais são
+    da Microsoft). p_th=0.01, A=0.07 conferidos número-por-número contra
+    o texto do paper (fórmula "4.8.8": p_L ≈ 0.07(p/0.01)^((d+1)/2)).
     Vantagem vs Surface Code: overhead de tempo menor (d//2 vs d³ rodadas).
     Custo: ~2× mais qubits por lógico (4d²+8(d-1) vs 2d²-1).
     """
