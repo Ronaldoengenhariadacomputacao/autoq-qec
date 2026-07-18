@@ -26,6 +26,32 @@ surface area with zero or thin test coverage.
   `readout_error` (which was already bounded to `[0, 1)`). `p_phys=1.5` (a
   150% gate error) was accepted silently. Now validated as `(0, 1)`, same
   treatment as `readout_error`.
+- `_floquet_code_model()`'s docstring still attributed arXiv:2202.11829 to
+  "Gidney & Fowler" in the shipped code — the README already had the
+  correct authors (Paetznick, Knapp, Delfosse, Bauer, Haah, Hastings & da
+  Silva), but the docstring itself was never updated. Corrected.
+
+### Added
+- **Majorana/topological qubit support.** The Floquet Code model turns out
+  to already be Majorana-native: its cited paper defines the physical error
+  rate `p` as "each two-qubit measurement fails independently" — the native
+  MZM operation, not a gate. `p_th=0.01`/`A=0.07` checked number-for-number
+  against the paper. No pipeline change was needed for this to hold.
+- `HardwareProfile.p_t_state` / `CalibratedHardware.p_t_state` (optional,
+  default `None`): the physical T-state injection error, when different
+  from `p_phys` (Clifford/measurement error). Used only by magic state
+  distillation (`model_magic_state_distillation=True`) as `Q_0`. `None`
+  preserves prior behavior (`Q_0 = p_phys`) for hardware that doesn't need
+  the distinction.
+- `HARDWARE_PROFILES["Majorana_MS_ResourceEstimator_illustrative"]`: built
+  from Microsoft's own public Azure Quantum Resource Estimator planning
+  targets (`qdk.qre.models.qubits.Majorana`, "realistic" regime), plus the
+  ~20s mean qubit lifetime reported for the "Majorana 2" chip launch (Forbes,
+  Jul 2026). Labeled "not measured hardware" directly in its `name` field —
+  two-qubit operations on real Majorana hardware had not been publicly
+  demonstrated as of that coverage, and the underlying platform claims
+  remain disputed (Nature, Jul 2026). See README "Majorana / topological
+  qubits" for full sourcing and caveats.
 
 ## [3.4.0] - 2026-07-17
 

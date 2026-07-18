@@ -32,6 +32,15 @@ class HardwareProfile:
     T1_us: Optional[float] = None  # tempo de relaxação (opcional)
     T2_us: Optional[float] = None  # tempo de decoerência (opcional)
     t_meas_ns: Optional[float] = None  # tempo de medição (opcional, default=t_gate_ns)
+    # Erro de injeção do T-state físico, quando diferente de p_phys (opcional).
+    # p_phys aqui é o erro da operação de 2 qubits "protegida" (porta física em
+    # qubits baseados em porta; medição conjunta em qubits topológicos/Majorana).
+    # Operações não-Clifford (T-gate físico) podem não ter a mesma proteção --
+    # em Majorana, por exemplo, a proteção topológica cobre operações Clifford,
+    # mas não o T físico, que fica com erro bem maior (ver HARDWARE_PROFILES
+    # "Majorana_MS_ResourceEstimator_illustrative" e distillation.py). None
+    # (padrão) preserva o comportamento antigo: destilação usa p_phys como Q_0.
+    p_t_state: Optional[float] = None
 
     def __post_init__(self):
         """
@@ -56,6 +65,8 @@ class HardwareProfile:
             raise ValueError(f"T2_us deve ser > 0 ou None, recebido {self.T2_us}")
         if self.t_meas_ns is not None and self.t_meas_ns <= 0:
             raise ValueError(f"t_meas_ns deve ser > 0 ou None, recebido {self.t_meas_ns}")
+        if self.p_t_state is not None and self.p_t_state <= 0:
+            raise ValueError(f"p_t_state deve ser > 0 ou None, recebido {self.p_t_state}")
 
     @classmethod
     def from_calibrated(cls, cal) -> "HardwareProfile":
@@ -80,6 +91,7 @@ class HardwareProfile:
             readout_error=cal.readout_error,
             T1_us=cal.T1_us,
             T2_us=cal.T2_us,
+            p_t_state=getattr(cal, "p_t_state", None),
         )
 
 @dataclass
@@ -187,10 +199,23 @@ def _floquet_code_model(p_phys: float, p_L_target: float,
     """
     Floquet Code planar (4.8.8) — Paetznick, Knapp, Delfosse, Bauer, Haah,
     Hastings & da Silva, "Performance of planar Floquet codes with
-    Majorana-based qubits", arXiv:2202.11829 (autoria corrigida: estava
-    atribuído a "Gidney & Fowler", citação errada — os autores reais são
-    da Microsoft). p_th=0.01, A=0.07 conferidos número-por-número contra
-    o texto do paper (fórmula "4.8.8": p_L ≈ 0.07(p/0.01)^((d+1)/2)).
+    Majorana-based qubits", arXiv:2202.11829 (autoria corrigida nesta
+    sessão -- estava atribuído a "Gidney & Fowler", citação fabricada/errada).
+    p_th=0.01, A=0.07 conferidos número-por-número contra o texto do paper
+    (fórmula "4.8.8": p_L ≈ 0.07(p/0.01)^((d+1)/2)).
+
+    Importante: este paper modela especificamente qubits MZM (Majorana
+    zero modes) topológicos, e define p como o erro de CADA MEDIÇÃO DE 2
+    QUBITS (não erro de porta) -- ou seja, p_phys aqui já representa a
+    operação física nativa de qubits Majorana. Ver
+    HARDWARE_PROFILES["Majorana_MS_ResourceEstimator_illustrative"] em
+    real_hardware.py e "Majorana / qubits topológicos" no README. Para
+    qubits baseados em porta, a mesma fórmula é reaproveitada tratando p
+    como o erro da porta física de 2 qubits (aproximação -- ver
+    extract_circuit_profile()/n_physical_gates, que conta portas físicas
+    via transpile, usado como proxy do número de operações de 2 qubits
+    independente do mecanismo físico real).
+
     Vantagem vs Surface Code: overhead de tempo menor (d//2 vs d³ rodadas).
     Custo: ~2× mais qubits por lógico (4d²+8(d-1) vs 2d²-1).
     """
@@ -557,6 +582,7 @@ def _apply_magic_state_distillation(results: list, circuit_profile: CircuitProfi
                 target_t_state_error=p_L_target,
                 data_circuit_time_us=r.execution_time_us,
                 t_meas_ns=hardware.t_meas_ns,
+                p_t_state=hardware.p_t_state,
             )
         except ValueError as e:
             r.feasible = False

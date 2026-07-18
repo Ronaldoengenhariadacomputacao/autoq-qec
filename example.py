@@ -52,9 +52,9 @@ if not recommendations[0].meets_fidelity_target:
 # ── Circuitos variacionais (VQE/QAOA) precisam de parâmetros vinculados ──
 # Exemplo 1: o erro esperado se você esquecer de vincular.
 print("\n--- Exemplo: ansatz não vinculado (erro esperado) ---")
-from qiskit.circuit.library import RealAmplitudes
+from qiskit.circuit.library import real_amplitudes
 
-ansatz_template = RealAmplitudes(4, reps=2).decompose()
+ansatz_template = real_amplitudes(4, reps=2)
 try:
     compare(ansatz_template, hardwares, fidelity_target=0.99)
 except ValueError as e:

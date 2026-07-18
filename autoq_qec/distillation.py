@@ -12,10 +12,14 @@ Validado contra os 3 exemplos numéricos da Tabela VII do paper — ver
 tests/test_distillation.py, que reproduz esses números exatos.
 
 Simplificações assumidas (documentadas, não escondidas):
-  - Q_0 (erro de entrada do T-state físico) = p_phys do hardware — o paper
-    permite um p_T físico separado para qubits Majorana; para qubits
-    baseados em porta (o único tipo que o AutoQ modela), assumimos que o
-    T-state físico injetado tem a mesma taxa de erro que uma porta Clifford.
+  - Q_0 (erro de entrada do T-state físico) = p_phys do hardware por padrão
+    (p_t_state=None) — o paper permite um p_T físico separado, relevante em
+    particular para qubits Majorana, onde a proteção topológica cobre
+    operações Clifford (medição conjunta) mas não a porta T física, que
+    fica com erro bem maior (ver HardwareProfile.p_t_state e
+    HARDWARE_PROFILES["Majorana_MS_ResourceEstimator_illustrative"] em
+    real_hardware.py). Passe p_t_state explicitamente para usar um valor
+    diferente de p_phys nesse cálculo.
   - A busca de configuração de fábrica (Eq. E4 escolhe o argmin sobre um
     catálogo de fábricas candidatas) é aproximada por uma busca gulosa:
     a cada rodada, escolhe a menor distância que reduz o erro, minimizando
@@ -121,18 +125,25 @@ def build_magic_state_factory(
     target_error: float,
     t_meas_ns: Optional[float] = None,
     unit_type: str = "space-eff",
+    p_t_state: Optional[float] = None,
 ) -> MagicStateFactory:
     """
     Constrói uma fábrica de destilação multi-rodada (15-para-1) até atingir
     target_error. Levanta ValueError se não convergir — nunca retorna um
     número silenciosamente errado.
+
+    p_t_state (opcional): erro de injeção do T-state físico, se diferente
+    de p_phys (ver nota de simplificação no docstring do módulo). None
+    (padrão) usa p_phys, preservando o comportamento antigo.
     """
     if p_phys <= 0:
         raise ValueError(f"p_phys={p_phys} deve ser positivo")
     if target_error <= 0:
         raise ValueError(f"target_error={target_error} deve ser positivo")
+    if p_t_state is not None and p_t_state <= 0:
+        raise ValueError(f"p_t_state={p_t_state} deve ser positivo ou None")
 
-    q = p_phys  # Q_0 — ver nota de simplificação no docstring do módulo
+    q = p_t_state if p_t_state is not None else p_phys  # Q_0
     rounds = []
     for level in range(1, _MAX_ROUNDS + 1):
         best = _best_round(q, p_phys, t_gate_ns, t_meas_ns, unit_type, target_error)
@@ -179,16 +190,20 @@ def magic_state_resources(
     target_t_state_error: float,
     data_circuit_time_us: float,
     t_meas_ns: Optional[float] = None,
+    p_t_state: Optional[float] = None,
 ):
     """
     Recursos totais de destilação para um circuito com `t_count` T-gates.
     Retorna (extra_qubits, n_factories, factory) — ver Eqs. E4-E6.
     Se t_count==0, retorna (0, 0, None) sem construir fábrica.
+
+    p_t_state (opcional): repassado a build_magic_state_factory() — ver lá.
     """
     if t_count == 0:
         return 0, 0, None
 
-    factory = build_magic_state_factory(p_phys, t_gate_ns, target_t_state_error, t_meas_ns)
+    factory = build_magic_state_factory(p_phys, t_gate_ns, target_t_state_error,
+                                         t_meas_ns, p_t_state=p_t_state)
 
     # F = ceil(M * tau(D) / (M(D) * t)) — Eq. E5, com M(D)=1 (simplificação, ver docstring)
     invocations_available = max(1, math.floor(data_circuit_time_us / factory.time_us))

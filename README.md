@@ -177,13 +177,13 @@ for r in rank(result, weight_qubits=0.1, weight_time=0.1, weight_fidelity=0.8)[:
 
 The practical takeaway: always compare against **your actual circuit** with **multiple real hardware profiles** (`HARDWARE_PROFILES`, not just one vendor) before trusting a `#1` — and pick weights that match your real constraints (see the presets table above), not weights chosen to make a particular hardware win.
 
-**Variational circuits (VQE, QAOA, etc.) must have parameters bound first.** `RealAmplitudes`, `EfficientSU2`, `QAOAAnsatz`, and similar templates carry symbolic parameters until you call `assign_parameters()` — T-count depends on the actual rotation angles, which don't exist in a symbolic circuit. Passing an unbound circuit raises a clear `ValueError` (as of 3.2.2):
+**Variational circuits (VQE, QAOA, etc.) must have parameters bound first.** `real_amplitudes()`, `efficient_su2()`, `QAOAAnsatz`, and similar templates carry symbolic parameters until you call `assign_parameters()` — T-count depends on the actual rotation angles, which don't exist in a symbolic circuit. Passing an unbound circuit raises a clear `ValueError` (as of 3.2.2):
 
 ```python
-from qiskit.circuit.library import RealAmplitudes
+from qiskit.circuit.library import real_amplitudes
 import numpy as np
 
-template = RealAmplitudes(4, reps=2).decompose()
+template = real_amplitudes(4, reps=2)
 rng = np.random.default_rng(42)
 circuit = template.assign_parameters(rng.uniform(0, 2*np.pi, template.num_parameters))
 
@@ -213,13 +213,35 @@ sim = noise_model_from_ibm("ibm_brisbane", token="YOUR_IBM_TOKEN")
 
 Thresholds are enforced: `p ≥ p_th` raises `ValueError` — no silent wrong results.
 
+### Majorana / topological qubits
+
+The Floquet Code model above is already Majorana-native, even though nothing in its implementation says so: the cited paper (Paetznick, Knapp, Delfosse, Bauer, Haah, Hastings & da Silva, arXiv:2202.11829, Microsoft authors) defines its physical error rate `p` as *"each two-qubit measurement fails independently with probability p"* — the native operation for measurement-only Majorana zero mode (MZM) qubits, not a gate. `p_th=0.01`/`A=0.07` were checked number-for-number against the paper's own formula. No change to `extract_circuit_profile()`'s gate-count-based pipeline was needed for this to hold — a counted 2-qubit operation already serves as the right proxy for a 2-qubit measurement, whichever physical mechanism actually implements it.
+
+What Majorana qubits need that gate-based hardware doesn't: topological protection covers Clifford operations (measurement) but not the physical T-gate, which has a separate, much higher error rate. `HardwareProfile.p_t_state` (and `CalibratedHardware.p_t_state`) exists for exactly this — an optional field, distinct from `p_phys`, used only by magic state distillation (`model_magic_state_distillation=True`) as the T-state injection error `Q_0`. `p_t_state=None` (default) preserves the old behavior (`Q_0 = p_phys`) for every hardware that doesn't need the distinction.
+
+```python
+from autoq_qec import HardwareProfile
+from autoq_qec.real_hardware import HARDWARE_PROFILES
+
+hw = HardwareProfile.from_calibrated(
+    HARDWARE_PROFILES["Majorana_MS_ResourceEstimator_illustrative"]
+)
+print(hw.p_phys, hw.p_t_state)  # 1e-05 0.015 -- distinct values
+```
+
+**This built-in entry is illustrative, not measured hardware — the name says so on purpose.** It's built from Microsoft's own public planning targets for the Azure Quantum Resource Estimator's `qdk.qre.models.qubits.Majorana` class (`error_rate` default `1e-5`, 1µs fixed time for every measurement/T-gate, "realistic"-regime non-Clifford T-gate error of 1.5% — [Microsoft Learn](https://learn.microsoft.com/en-us/python/qdk/qdk.qre.models.qubits.majorana), citing Karzig et al. arXiv:1610.05289, Kitaev cond-mat/0010440, Das Sarma et al. arXiv:1501.02813), plus the ~20-second mean qubit lifetime Microsoft reported for its "Majorana 2" chip launch ([Forbes, Jul 2026](https://www.forbes.com/sites/moorinsights/2026/07/16/microsoft-doubles-down-on-topological-qubits-with-majorana-2-chip/)) used as the closest public analogue for the `T1_us` viability filter. As of that same coverage, **two-qubit entangling/braiding operations had not yet been publicly demonstrated on real Majorana hardware** — "two-qubit entangling gates, which are essential for quantum computing, have yet to be demonstrated" — and independent physicists remain skeptical of the platform's core claims ([Nature, "Microsoft upgrades controversial quantum chip — researchers are still sceptical"](https://www.nature.com/articles/d41586-026-01788-y)). `p_phys`/`p_t_state` on this entry are Microsoft's own design targets, not measurements of a working chip — use it to explore the shape of the cost model, not as a performance prediction. This caveat is in the hardware's `name` field itself (`"... — not measured hardware"`), so it surfaces directly in any printed ranking table, not just here.
+
+Microsoft has also published an older, distinct Majorana parameter pair in the Azure Quantum Resource Estimator itself (`qubit_maj_ns_e4`/`qubit_maj_ns_e6`, from Beverland, Kliuchnikov, Schoute et al., arXiv:2211.07629, Table 2 — 100ns operations, 5%/1% T-gate error at the `1e-4`/`1e-6` Clifford-error tiers, vs. this package's 1µs/1.5% from the newer `qdk.qre` Python API). Both are real, citable, Microsoft-published planning targets for the same underlying hardware concept — this package uses the newer API's numbers; if you need the older preset's numbers specifically, build a `HardwareProfile` by hand from Table 2 rather than assuming they match this entry.
+
+**Surface Code, Bacon-Shor, and Steane [[7,1,3]] are not validated for this physical error mechanism.** Their thresholds come from gate-error literature (Fowler et al. PRA 86 032324 for Surface Code; Aliferis & Cross PRL 98 220502 for Bacon-Shor; Steane PRL 77 793) — a different physical error mechanism than the 2-qubit-measurement error Majorana qubits actually have. This is a documented gap, not a correction — there's no published data to recalibrate those three models against measurement-based error for topological qubits, so running them against a Majorana `HardwareProfile` extrapolates outside what their source literature covers.
+
 **Magic state distillation (opt-in).** By default, `total_physical_qubits`/`execution_time_us` scale with `n_physical_gates` only and ignore T-gate count — physically inaccurate, since magic state distillation (needed for T-gates, not Clifford gates) is normally the dominant resource cost in real fault-tolerant quantum computing. Pass `model_magic_state_distillation=True` to `compare()`/`estimate()` to include it: each `CodeResult` gets `magic_state_qubits`, `magic_state_factories`, and `magic_state_t_state_error` populated, and both totals grow accordingly.
 
 ```python
 result = compare(circuit, hardwares, fidelity_target=0.99, model_magic_state_distillation=True)
 ```
 
-The T-factory cost model (`autoq_qec/distillation.py`) implements the multi-round 15-to-1 distillation formulas from Beverland, Kliuchnikov, Schoute et al., "Assessing requirements to scale to practical quantum advantage", arXiv:2211.07629 (Appendix C, Table VI; Appendix E, Eqs. C1–C4, E4–E6) — validated against the paper's own worked examples (Table VII) as regression tests (`tests/test_distillation.py`), reproducing their exact numbers (qubits, time, output error) for both a 1-round and a 2-round factory. Two simplifications versus the paper, documented in the module docstring: the per-round factory search is greedy (cheapest distance meeting the round's error target) rather than a global optimum over a full factory catalog, and the physical T-state input error is assumed equal to the hardware's Clifford error rate `p_phys` (the paper allows a separate value for Majorana qubits, which this package doesn't model). Default is `False` — existing code is unaffected.
+The T-factory cost model (`autoq_qec/distillation.py`) implements the multi-round 15-to-1 distillation formulas from Beverland, Kliuchnikov, Schoute et al., "Assessing requirements to scale to practical quantum advantage", arXiv:2211.07629 (Appendix C, Table VI; Appendix E, Eqs. C1–C4, E4–E6) — validated against the paper's own worked examples (Table VII) as regression tests (`tests/test_distillation.py`), reproducing their exact numbers (qubits, time, output error) for both a 1-round and a 2-round factory. Two simplifications versus the paper, documented in the module docstring: the per-round factory search is greedy (cheapest distance meeting the round's error target) rather than a global optimum over a full factory catalog, and the physical T-state input error defaults to the hardware's Clifford error rate `p_phys` unless you pass `HardwareProfile.p_t_state` — a separate value for the physical T-gate error, relevant when it differs from the Clifford/measurement error rate (the paper's own motivating case is Majorana qubits — see "Majorana / topological qubits" below). Default is `False` — existing code is unaffected.
 
 **Fidelity formula**: `fidelity_circuit = (1 - p_L)^n_gates × (1 - readout_error)^n_logical_qubits × exp(-execution_time_us / T2_us)`. `readout_error` and `T2_us` are optional fields on `HardwareProfile` (default `0.0` / `None`, preserving the old formula if omitted).
 
@@ -255,6 +277,8 @@ Covers `shor`, `grover`, `qft`, `vqe`. These are rough estimates (±2×–±10×
 
 Includes `Google_Willow` (105q, Acharya et al., Nature 638, 964-971, 2025) and `IBM_Heron_r3` (`ibm_pittsburgh`, Q4 2025), alongside `IBM_Eagle_r3`, `IBM_Heron_r2`, `Quantinuum_H2`, `IonQ_Aria`, `Google_Sycamore` — all with real `T1_us`/`T2_us`/`readout_error`. Use `HardwareProfile.from_calibrated(HARDWARE_PROFILES["..."])` to turn any of them into a `HardwareProfile` for `compare()` (see "Getting real decoherence data" above).
 
+`Majorana_MS_ResourceEstimator_illustrative` is also included, but it's a different kind of entry — a topological-qubit design target, not measured hardware. See "Majorana / topological qubits" above before using it.
+
 ## Visualization
 
 ```bash
@@ -271,7 +295,7 @@ plot_tradeoff(result, output="tradeoff.png")  # log-log qubits × time, color = 
 ## Test
 
 ```bash
-pytest tests/ -v   # 124 tests, all verify physics not arithmetic
+pytest tests/ -v   # 142 tests, all verify physics not arithmetic
 ```
 
 ## What the tests check (unlike most QEC tools)

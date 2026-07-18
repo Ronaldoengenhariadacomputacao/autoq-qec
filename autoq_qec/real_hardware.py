@@ -24,6 +24,12 @@ class CalibratedHardware:
     readout_error: float    # erro de leitura médio
     topology: str
     source: str             # referência dos dados
+    # Erro de injeção do T-state físico, se diferente de p_2q_mean (opcional
+    # -- ver HardwareProfile.p_t_state em qec_estimator.py). Relevante para
+    # qubits onde a operação Clifford (aqui, p_2q_mean) tem proteção
+    # diferente da porta T física (ex.: Majorana, proteção topológica só
+    # em Clifford).
+    p_t_state: Optional[float] = None
     # p_phys efetivo para QEC: geralmente dominado por 2q gates
     @property
     def p_phys(self) -> float:
@@ -180,6 +186,51 @@ HARDWARE_PROFILES = {
                "do lançamento — corrigido nesta sessão: n_qubits estava em 133 (contagem do "
                "Heron r1), mas r3 mantém os 156 qubits do r2; T1/T2 também corrigidos "
                "(180/140 → 300/370, valores reais reportados no lançamento).",
+    ),
+
+    # ── Ilustrativo, NÃO medido — ver README "Majorana / qubits topológicos" ──
+    "Majorana_MS_ResourceEstimator_illustrative": CalibratedHardware(
+        name="Majorana (MS Resource Estimator default — not measured hardware)",
+        n_qubits=4,          # "four-tetron" unit cell prototipado (Majorana 2, jul/2026);
+                              # resultados publicados são de UM nanofio/tetron isolado, não
+                              # de um array de 4 operando junto — não é uma contagem de
+                              # capacidade, é o tamanho da célula unitária fabricada.
+        p_1q_mean=1e-5,      # = error_rate default da classe qdk.qre.models.qubits.Majorana
+        p_2q_mean=1e-5,      # (regime "realista" dos 3 citados: 1e-4/1e-5/1e-6). O modelo da
+        p_2q_worst=1e-5,     # MS não distingue erro de 1q/2q -- um error_rate só, coberto por
+                              # proteção topológica (medição/Clifford).
+        t_1q_ns=1000.0,      # 1µs fixo p/ toda operação -- doc: "measurements and the physical
+        t_2q_ns=1000.0,      # T gate each take 1 µs".
+        T1_us=20_000_000.0,  # "mean qubit lifetime" ~20s (Forbes, lançamento Majorana 2,
+                              # jul/2026) -- ATENÇÃO: é o tempo de vida reportado p/ MZM
+                              # (relacionado a poisoning de quasipartícula), não
+                              # necessariamente T1 no sentido de relaxação de energia usado
+                              # nas outras entradas deste dict. Usado aqui como o análogo
+                              # público mais próximo disponível p/ o filtro de viabilidade T1.
+        T2_us=None,          # sem análogo público claro reportado -- não inventado.
+        readout_error=1e-5,  # mesmo error_rate (medição É a operação Clifford neste modelo).
+        topology="all-to-all",  # não modelado -- sem dado público de conectividade de lattice
+                                 # surgery/braiding; tratado como sem penalidade de SWAP em vez
+                                 # de inventar uma topologia sem fonte (ver README).
+        p_t_state=0.015,     # porta T física (não-Clifford, SEM proteção topológica) no mesmo
+                              # regime "realista" -- doc: "5%, 1.5%, and 1% error rate for
+                              # non-Clifford physical T gates" p/ os 3 regimes.
+        source="Modelo de erro/tempo: Microsoft Learn, qdk.qre.models.qubits.Majorana "
+               "(learn.microsoft.com/python/qdk/qdk.qre.models.qubits.majorana, "
+               "error_rate default=1e-5, regime 'realista'; cita Karzig et al. "
+               "arXiv:1610.05289, Kitaev cond-mat/0010440, Das Sarma et al. "
+               "arXiv:1501.02813) -- valor-ALVO de planejamento da própria Microsoft, "
+               "não medição de hardware. T1: Forbes, cobertura do lançamento do chip "
+               "'Majorana 2' (jul/2026), 'mean qubit lifetime of 20 seconds'. "
+               "IMPORTANTE: dois-qubit/braiding ainda não haviam sido demonstrados "
+               "publicamente no momento dessa cobertura ('two-qubit entangling gates... "
+               "have yet to be demonstrated') -- ou seja, p_phys/p_t_state aqui são "
+               "metas de projeto do Resource Estimator, não números medidos no chip "
+               "real. Cobertura crítica independente: Nature "
+               "(nature.com/articles/d41586-026-01788-y, 'researchers are still "
+               "sceptical') e ScienceNews levantam ceticismo da comunidade sobre as "
+               "alegações do anúncio -- usar esta entrada só para explorar a forma do "
+               "modelo, não como previsão de desempenho real.",
     ),
 }
 

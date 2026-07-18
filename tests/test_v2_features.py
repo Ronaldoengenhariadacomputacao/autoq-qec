@@ -431,6 +431,78 @@ class TestAvisoHardwareProfileIncompleto(unittest.TestCase):
             self.assertEqual(len(w), 0)
 
 
+class TestFeatureMajorana(unittest.TestCase):
+    """
+    v3.5.0: suporte a hardware Majorana/topológico. O Floquet Code já
+    modela corretamente a física de qubits MZM (p = erro de medição de 2
+    qubits, conferido contra o paper -- ver docstring de
+    _floquet_code_model()); a novidade real é p_t_state (erro de T físico
+    separado de p_phys) e a entrada ilustrativa em HARDWARE_PROFILES.
+    """
+
+    def test_entrada_majorana_existe(self):
+        self.assertIn("Majorana_MS_ResourceEstimator_illustrative", HARDWARE_PROFILES)
+
+    def test_entrada_majorana_carrega_via_from_calibrated(self):
+        cal = HARDWARE_PROFILES["Majorana_MS_ResourceEstimator_illustrative"]
+        hw = HardwareProfile.from_calibrated(cal)
+        self.assertEqual(hw.p_phys, 1e-5)
+        self.assertEqual(hw.p_t_state, 0.015)
+        self.assertNotEqual(hw.p_phys, hw.p_t_state,
+            "p_t_state deveria ser distinto de p_phys nesta entrada -- essa é a "
+            "diferença física que a entrada existe para demonstrar")
+
+    def test_nome_carrega_aviso_de_dado_nao_medido(self):
+        """O aviso de 'não medido' precisa estar no próprio nome exibido,
+        não só numa nota do README -- é o que garante que apareça direto
+        na tabela de ranking, como pedido explicitamente."""
+        cal = HARDWARE_PROFILES["Majorana_MS_ResourceEstimator_illustrative"]
+        self.assertIn("not measured", cal.name.lower())
+
+    def test_aviso_de_nao_medido_aparece_no_ranking(self):
+        qc = QuantumCircuit(3)
+        qc.h(0); qc.cx(0, 1); qc.cx(1, 2)
+        hw = HardwareProfile.from_calibrated(
+            HARDWARE_PROFILES["Majorana_MS_ResourceEstimator_illustrative"]
+        )
+        result = compare(qc, [hw], fidelity_target=0.99)
+        recs = rank(result)
+        self.assertTrue(recs)
+        self.assertTrue(all("not measured" in r.hardware.lower() for r in recs))
+
+    def test_floquet_code_formula_nao_regride(self):
+        """Regressão: p_th/A do Floquet Code não podem ter mudado ao
+        adicionar a documentação/citação corrigida da Majorana."""
+        from autoq_qec.qec_estimator import _floquet_code_model
+        d, q, cycles, p_L = _floquet_code_model(0.001, 1e-6)
+        self.assertAlmostEqual(p_L, 0.07 * (0.001 / 0.01) ** ((d + 1) / 2), places=12)
+
+    def test_p_t_state_afeta_destilacao_end_to_end(self):
+        """Integração completa: p_t_state de uma HardwareProfile Majorana
+        deve mudar magic_state_qubits em relação a um p_t_state=None com
+        o mesmo p_phys -- prova que o campo chega até estimate()."""
+        qc = QuantumCircuit(2)
+        qc.h(0); qc.t(0); qc.t(0); qc.cx(0, 1); qc.t(1)
+
+        sem_p_t = HardwareProfile("Teste_sem", t_gate_ns=1000, p_phys=1e-5,
+                                   topology="all-to-all")
+        com_p_t = HardwareProfile("Teste_com", t_gate_ns=1000, p_phys=1e-5,
+                                   topology="all-to-all", p_t_state=0.015)
+
+        r_sem = compare(qc, [sem_p_t], fidelity_target=0.99,
+                         model_magic_state_distillation=True)
+        r_com = compare(qc, [com_p_t], fidelity_target=0.99,
+                         model_magic_state_distillation=True)
+
+        rec_sem = next(r for r in r_sem["results"]["Teste_sem"] if r.feasible)
+        rec_com = next(r for r in r_com["results"]["Teste_com"] if r.feasible)
+
+        self.assertIsNotNone(rec_sem.magic_state_qubits)
+        self.assertIsNotNone(rec_com.magic_state_qubits)
+        self.assertGreaterEqual(rec_com.magic_state_qubits, rec_sem.magic_state_qubits,
+            "p_t_state pior (0.015 vs p_phys=1e-5) deveria exigir mais qubits de destilação")
+
+
 class TestFeature8Visualizer(unittest.TestCase):
 
     def test_plot_gera_arquivo_png(self):

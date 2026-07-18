@@ -97,6 +97,47 @@ class TestMagicStateResources(unittest.TestCase):
             build_magic_state_factory(P_PHYS, T_GATE_NS, target_error=1e-300)
 
 
+class TestPTState(unittest.TestCase):
+    """
+    v3.5.0: p_t_state permite Q_0 (erro de entrada do T-state físico)
+    diferente de p_phys -- relevante para qubits onde a operação Clifford
+    (p_phys) tem proteção física diferente da porta T (ex.: Majorana,
+    proteção topológica só em Clifford). None preserva o comportamento
+    antigo (Q_0 = p_phys).
+    """
+
+    def test_p_t_state_none_preserva_comportamento_antigo(self):
+        com_none = build_magic_state_factory(P_PHYS, T_GATE_NS, target_error=1e-10)
+        sem_param = build_magic_state_factory(P_PHYS, T_GATE_NS, target_error=1e-10, p_t_state=None)
+        self.assertEqual(com_none.output_error, sem_param.output_error)
+        self.assertEqual(com_none.qubits, sem_param.qubits)
+
+    def test_p_t_state_pior_que_p_phys_exige_mais_recursos(self):
+        """Q_0 pior (T físico sem proteção) deve exigir fábrica maior/mais rodadas."""
+        sem = build_magic_state_factory(P_PHYS, T_GATE_NS, target_error=1e-10)
+        com_pior = build_magic_state_factory(P_PHYS, T_GATE_NS, target_error=1e-10, p_t_state=0.015)
+        self.assertGreaterEqual(com_pior.qubits, sem.qubits)
+        self.assertGreaterEqual(len(com_pior.rounds), len(sem.rounds))
+
+    def test_p_t_state_zero_ou_negativo_rejeitado(self):
+        with self.assertRaises(ValueError):
+            build_magic_state_factory(P_PHYS, T_GATE_NS, target_error=1e-10, p_t_state=0.0)
+        with self.assertRaises(ValueError):
+            build_magic_state_factory(P_PHYS, T_GATE_NS, target_error=1e-10, p_t_state=-0.01)
+
+    def test_magic_state_resources_repassa_p_t_state(self):
+        sem_extra, sem_fab, _ = magic_state_resources(
+            t_count=10, p_phys=P_PHYS, t_gate_ns=T_GATE_NS,
+            target_t_state_error=1e-10, data_circuit_time_us=1000, t_meas_ns=T_MEAS_NS,
+        )
+        com_extra, com_fab, _ = magic_state_resources(
+            t_count=10, p_phys=P_PHYS, t_gate_ns=T_GATE_NS,
+            target_t_state_error=1e-10, data_circuit_time_us=1000, t_meas_ns=T_MEAS_NS,
+            p_t_state=0.015,
+        )
+        self.assertGreaterEqual(com_extra, sem_extra)
+
+
 class TestEstimateIntegration(unittest.TestCase):
     """Integração do parâmetro opt-in em estimate()/compare() — não só o
     módulo distillation.py isolado."""

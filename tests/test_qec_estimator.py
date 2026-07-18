@@ -388,6 +388,17 @@ class TestHardwareProfileValidacao(unittest.TestCase):
         with self.assertRaises(ValueError):
             HardwareProfile(**self._valido(t_meas_ns=0))
 
+    def test_p_t_state_zero_rejeitado(self):
+        with self.assertRaises(ValueError):
+            HardwareProfile(**self._valido(p_t_state=0))
+
+    def test_p_t_state_negativo_rejeitado(self):
+        with self.assertRaises(ValueError):
+            HardwareProfile(**self._valido(p_t_state=-0.01))
+
+    def test_p_t_state_none_aceito(self):
+        HardwareProfile(**self._valido(p_t_state=None))
+
 
 class TestConectividadeCoupling(unittest.TestCase):
     """
