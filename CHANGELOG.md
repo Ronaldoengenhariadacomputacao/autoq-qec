@@ -52,6 +52,10 @@ surface area with zero or thin test coverage.
   demonstrated as of that coverage, and the underlying platform claims
   remain disputed (Nature, Jul 2026). See README "Majorana / topological
   qubits" for full sourcing and caveats.
+- `RealAmplitudes` (class) is deprecated as of Qiskit 2.1 and will be
+  removed in Qiskit 3.0. README and `example.py` updated to use the
+  `real_amplitudes()` function instead — confirmed zero warnings, even with
+  warnings promoted to errors.
 
 ## [3.4.0] - 2026-07-17
 
