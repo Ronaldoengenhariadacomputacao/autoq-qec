@@ -3,6 +3,121 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.4.2] - 2026-07-23
+
+Found by user-as-real-user testing round against the published PyPI package,
+this time targeted at invalid/malformed inputs and weights (as opposed to
+the surface-area coverage gaps found in 3.4.1).
+
+### Fixed
+- `rank()` accepted `weight_qubits=weight_time=weight_fidelity=0` and
+  crashed with a raw `ZeroDivisionError` while normalizing. Now raises a
+  clear `ValueError` before dividing. Individual weights of `0` remain
+  allowed (unchanged) — `rank_by_metric()` relies on exactly this to
+  isolate one criterion at a time.
+- `rank()` accepted negative weights (as long as the sum was 1.0) and
+  silently inverted the ranking with no error or warning — the "best"
+  recommendation could become the worst with no indication anything was
+  wrong. Now rejected with `ValueError`.
+- `rank()` accepted `NaN` weights and silently propagated `NaN` into
+  `Recommendation.score`, corrupting the sort order (`NaN` comparisons are
+  always `False` in Python, so the sum-check that would normally catch bad
+  weights never triggered). Now rejected with `ValueError`.
+- `CalibratedHardware` had no `__post_init__` validation at all, unlike its
+  sibling `HardwareProfile`. `T1_us=0`, `T2_us=float('nan')`, or negative
+  `p_2q_mean` were accepted silently at construction; the bad value would
+  either crash later inside `t1_constraint()` (`ZeroDivisionError`) or, for
+  `NaN` specifically, pass through `HardwareProfile.from_calibrated()`
+  undetected and make `rank()` return an empty list with no explanation.
+  `CalibratedHardware` now validates on construction, mirroring
+  `HardwareProfile`. `T2_us=None` (used intentionally by
+  `HARDWARE_PROFILES["Majorana_..."]` for an unreported metric) remains
+  allowed.
+- `HardwareProfile.__post_init__` itself had the same `NaN` gap for
+  `T1_us`/`T2_us`/`t_meas_ns`/`p_t_state`: the existing `<= 0` checks never
+  catch `NaN` (`float('nan') <= 0` is `False` in Python). Now checked
+  explicitly with `math.isnan()`.
+- `AlgorithmEstimator.qft(n)` accepted `NaN`/`inf` for `n` and silently
+  returned an `AlgorithmEstimate` with `NaN` fields instead of raising.
+  `shor()`/`grover()` already failed for `NaN`/`inf`, but via a bare
+  Python `ValueError`/`OverflowError` from an internal `int()` conversion,
+  not the package's own validation message. All three now raise a clear
+  `ValueError` explicitly for non-finite input.
+- `compare()` silently dropped results when two or more `HardwareProfile`
+  objects in `hardware_list` shared the same `.name` — results were keyed
+  by name in a dict, so the last one silently overwrote all previous ones
+  with that name, and the caller had no way to know results were lost
+  (e.g., comparing two calibration snapshots of "the same" named chip).
+  Duplicate names are now auto-disambiguated with a deterministic suffix
+  (`" #2"`, `" #3"`, ...) based on input order, and a `UserWarning` is
+  raised so the collision isn't silent.
+
+Two more found via an external bug report, same category (physically
+meaningless results that didn't stop execution — computed all the way
+through and returned as if valid, rather than rejected or crashing):
+- `magic_state_resources(t_count=-1)` returned `(-4840, -1, factory)` —
+  negative `extra_qubits`/`n_factories`. `t_count` was never validated;
+  `math.ceil(t_count / invocations_available)` with negative `t_count`
+  produces a negative `n_factories`, and `extra_qubits = n_factories *
+  factory.qubits` follows it negative. A caller summing this into a total
+  qubit count would see the total silently shrink. Now rejects `t_count <
+  0` with `ValueError`; `t_count == 0` (a circuit with no T-gates) remains
+  a valid special case returning `(0, 0, None)`.
+- `_steane_model(p_phys=0)` returned `fidelity = 1.000000` — a false
+  "perfect hardware" result. Steane's formula (`p_L ≈ 21·p²`) is a plain
+  polynomial and accepts `p=0` without error, unlike the other three code
+  models (Surface/Bacon-Shor/Floquet), which all use `log(p)` internally
+  and already raise `math domain error` for `p=0`. `HardwareProfile`
+  already rejects `p_phys<=0` for the public API, but `_steane_model()`
+  itself had no guard — anyone calling the low-level model function
+  directly had no protection. Now rejects `p_phys <= 0` explicitly.
+
+Six more found via a broader external bug-report table cross-referencing the
+whole public surface for unvalidated numeric/string edges (13 of 14 items in
+that report were this same "input validation incomplete" pattern; one, a
+`T2 > 2*T1` case at float-precision distance from the limit, was correctly
+flagged by the report itself as *not* a real violation — that distinction is
+exactly why the new check below uses a tolerance instead of a strict `>`):
+- `HardwareProfile`/`CalibratedHardware` accepted `T2_us > 2*T1_us`, which
+  is physically impossible: the Bloch equation `1/T2 = 1/(2·T1) + 1/Tφ`
+  (Tφ, pure dephasing time, is never negative) implies `T2 <= 2*T1` always.
+  Now rejected with `ValueError`, using a small relative tolerance (`1e-9`)
+  so genuine floating-point noise at the boundary (e.g. `T2 = 2*T1 +
+  1e-12`) is not mistaken for a real violation.
+- `HardwareProfile`/`CalibratedHardware` validated `p_t_state > 0` but not
+  `< 1` — values like `p_t_state=1.5` (not a valid probability) were
+  accepted silently. Now validated as `(0, 1)` exclusive, mirroring
+  `p_phys`.
+- `HardwareProfile`/`CalibratedHardware` accepted an empty-string `name` or
+  `topology` with no error, producing hardware profiles with no usable
+  identity (blank output in `r.hardware`, blank topology for SWAP-cost
+  estimation). Both now rejected with `ValueError`.
+- `magic_state_resources(target_t_state_error=1.5)` — not a valid
+  probability — was accepted silently and returned a normal-looking result
+  `(1000, 1)` with no error, since any code distance trivially satisfies an
+  error target above 1. Now rejects `target_t_state_error` outside `(0,
+  1)`.
+- `magic_state_resources(data_circuit_time_us=-500)` was accepted silently
+  and returned a normal-looking result `(48400, 10)` — the negative sign
+  was masked by `max(1, math.floor(...))` in the internal
+  `invocations_available` calculation, hiding a physically meaningless
+  negative circuit time. Now rejects `data_circuit_time_us < 0`.
+
+One more found by re-checking the fix above against its own low-level
+implementation: `magic_state_resources()`'s new `target_t_state_error`/
+`p_t_state` validation protects that public wrapper, but the underlying
+`build_magic_state_factory()` — a public function in its own right, callable
+directly — never got the same upper-bound check, the same asymmetry pattern
+already seen with `_steane_model()` above:
+- `build_magic_state_factory(target_error=1.5)` returned a normal-looking
+  `MagicStateFactory` silently (any code distance trivially "succeeds"
+  against an error target that isn't a valid probability).
+- `build_magic_state_factory(p_t_state=1.5)` didn't fail silently, but
+  raised a misleading convergence error blaming `p_phys` instead of the
+  actually-invalid `p_t_state`.
+  Both now rejected with a clear `ValueError`, mirroring
+  `magic_state_resources()`.
+
 ## [3.4.1] - 2026-07-18
 
 Found by user-as-real-user testing round against the published PyPI package

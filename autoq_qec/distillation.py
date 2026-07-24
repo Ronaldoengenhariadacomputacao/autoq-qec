@@ -138,10 +138,25 @@ def build_magic_state_factory(
     """
     if p_phys <= 0:
         raise ValueError(f"p_phys={p_phys} deve ser positivo")
-    if target_error <= 0:
-        raise ValueError(f"target_error={target_error} deve ser positivo")
-    if p_t_state is not None and p_t_state <= 0:
-        raise ValueError(f"p_t_state={p_t_state} deve ser positivo ou None")
+    if not (0 < target_error < 1):
+        raise ValueError(
+            f"target_error={target_error} deve estar em (0, 1) (é uma "
+            f"probabilidade de erro). Achado testando entrada inválida: "
+            f"valores >= 1 eram aceitos silenciosamente e produziam uma "
+            f"fábrica de aparência normal, já que qualquer distância "
+            f"trivialmente satisfaz um alvo de erro que já nem é uma "
+            f"probabilidade válida. magic_state_resources() já valida "
+            f"isso antes de chamar esta função, mas quem chama "
+            f"build_magic_state_factory() diretamente não tinha proteção."
+        )
+    if p_t_state is not None and not (0 < p_t_state < 1):
+        raise ValueError(
+            f"p_t_state={p_t_state} deve estar em (0, 1) ou ser None. "
+            f"Achado testando entrada inválida: p_t_state >= 1 não era "
+            f"rejeitado aqui e produzia um erro de convergência confuso, "
+            f"apontando incorretamente para p_phys em vez do p_t_state "
+            f"realmente inválido."
+        )
 
     q = p_t_state if p_t_state is not None else p_phys  # Q_0
     rounds = []
@@ -199,6 +214,32 @@ def magic_state_resources(
 
     p_t_state (opcional): repassado a build_magic_state_factory() — ver lá.
     """
+    if t_count < 0:
+        raise ValueError(
+            f"t_count deve ser >= 0 (contagem de T-gates não pode ser "
+            f"negativa), recebido {t_count}. Achado testando entrada "
+            f"inválida: t_count=-1 produzia extra_qubits/n_factories "
+            f"negativos sem erro, encolhendo silenciosamente qualquer "
+            f"total de qubits que somasse este resultado."
+        )
+    if not (0 < target_t_state_error < 1):
+        raise ValueError(
+            f"target_t_state_error deve estar em (0, 1) (é uma "
+            f"probabilidade de erro), recebido {target_t_state_error}. "
+            f"Achado testando entrada inválida: valores >= 1 eram aceitos "
+            f"silenciosamente (ex.: 1.5 produzia (1000, 1) sem erro), "
+            f"porque qualquer distância satisfaz um alvo de erro que já "
+            f"nem é uma probabilidade válida."
+        )
+    if data_circuit_time_us < 0:
+        raise ValueError(
+            f"data_circuit_time_us deve ser >= 0, recebido "
+            f"{data_circuit_time_us}. Achado testando entrada inválida: "
+            f"valores negativos eram aceitos silenciosamente (ex.: -500 "
+            f"produzia (48400, 10) sem erro) porque max(1, floor(...)) "
+            f"mascara o sinal negativo, escondendo um tempo de circuito "
+            f"fisicamente sem sentido."
+        )
     if t_count == 0:
         return 0, 0, None
 

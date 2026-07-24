@@ -28,6 +28,8 @@ class AlgorithmEstimator:
         Incerteza: ±5× dependendo da implementação de aritmética modular
         (verificado contra Shor N=15 real: fórmula subestima ~4,7×).
         """
+        if isinstance(N, float) and (math.isnan(N) or math.isinf(N)):
+            raise ValueError(f"Shor requer N finito e > 2, recebido {N}")
         if N <= 2:
             raise ValueError(
                 f"Shor requer N > 2 (N={N} não tem fatoração não-trivial a estimar)"
@@ -53,6 +55,8 @@ class AlgorithmEstimator:
         iteração, não só do número de iterações.
         Fonte: estimativa com oracle genérico.
         """
+        if isinstance(N, float) and (math.isnan(N) or math.isinf(N)):
+            raise ValueError(f"Grover requer N finito e > 1, recebido {N}")
         if N <= 1:
             raise ValueError(f"Grover requer N > 1 itens de busca (N={N})")
         n = math.ceil(math.log2(N))
@@ -74,6 +78,8 @@ class AlgorithmEstimator:
         QFT em n qubits.
         T-count ≈ n²/2 (rotações CP com síntese Solovay-Kitaev).
         """
+        if isinstance(n, float) and (math.isnan(n) or math.isinf(n)):
+            raise ValueError(f"QFT requer n finito e > 0, recebido {n}")
         if n <= 0:
             raise ValueError(f"QFT requer n > 0 qubits (n={n})")
         t_count = n*n // 2

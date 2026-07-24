@@ -78,6 +78,8 @@ Using real calibrated `T2_us` (via `from_calibrated()` above), this particular c
 
 Weights don't need to sum to 1.0 — they're normalized automatically (the ratio between them is what matters, not the absolute values). **The default weights genuinely change the outcome — verified empirically**: the same circuit/hardware list ranked with `weight_time=0.9` instead of the default reordered the ranking substantially (a combination that ranked #3 by default dropped out of the top 5 entirely, replaced by a faster-but-more-qubit-hungry option). Qubits, time, and fidelity are different units with no natural common scale — the weights *are* the exchange rate between them, and the right rate depends on your actual constraints (e.g., queue-time-billed access cares more about time; qubit-scarce hardware cares more about qubit count). There is no single "objective" ranking — pass weights that reflect your real situation.
 
+A single weight can be `0` (used deliberately by `rank_by_metric()`, below, to isolate one criterion at a time), but `weight_qubits`, `weight_time`, and `weight_fidelity` can't all be `0` at once (nothing would be scored), can't be negative (silently inverts the ranking — the "best" result could become the worst with no indication), and can't be `NaN` — all three raise `ValueError` immediately instead of failing silently or crashing deep inside the sort.
+
 ```python
 # 1. Default: prioritize qubit savings
 recommendations = rank(result)  # weight_qubits=0.5, weight_time=0.3, weight_fidelity=0.2
@@ -132,7 +134,12 @@ hw = HardwareProfile.from_calibrated(HARDWARE_PROFILES["IBM_Heron_r2"])
 # hw.T2_us, hw.T1_us, hw.readout_error are all populated — nothing to remember
 ```
 
-If you build a `HardwareProfile` by hand and leave `readout_error`/`T1_us`/`T2_us` at their defaults, `compare()`/`estimate()` emit a `UserWarning` naming exactly which of the three are still missing (with a short description of what each one does) — set one and it drops out of the message; set (or load via `from_calibrated()`) all three and the warning stops. Zero or negative values for `t_gate_ns`, `p_phys`, `T1_us`, `T2_us`, or `t_meas_ns` (and `readout_error` outside `[0, 1)`) raise `ValueError` immediately — they have no physical meaning, and previously produced silently wrong results (`t_gate_ns=0` gave `execution_time_us=0.0`; `readout_error=5.0` gave `fidelity_circuit` above `1.0`).
+If you build a `HardwareProfile` by hand and leave `readout_error`/`T1_us`/`T2_us` at their defaults, `compare()`/`estimate()` emit a `UserWarning` naming exactly which of the three are still missing (with a short description of what each one does) — set one and it drops out of the message; set (or load via `from_calibrated()`) all three and the warning stops. `HardwareProfile` (and `CalibratedHardware`, which mirrors the same checks) validates on construction and raises `ValueError` immediately for anything with no physical meaning:
+- Zero, negative, or `NaN` `t_gate_ns`, `p_phys`, `T1_us`, `T2_us`, or `t_meas_ns` (and `readout_error`/`p_t_state` outside their valid `[0, 1)`/`(0, 1)` ranges) — previously produced silently wrong results (`t_gate_ns=0` gave `execution_time_us=0.0`; `readout_error=5.0` gave `fidelity_circuit` above `1.0`).
+- `T2_us > 2*T1_us` — physically impossible (the Bloch equation `1/T2 = 1/(2·T1) + 1/Tφ` implies `T2 <= 2*T1` always, since pure dephasing time `Tφ` is never negative). A small floating-point tolerance is applied so genuine rounding noise at the boundary isn't mistaken for a real violation.
+- Empty `name` or `topology`.
+
+`compare()` also auto-disambiguates two `HardwareProfile`s that share the same `.name` (appending `" #2"`, `" #3"`, ... based on input order) and raises a `UserWarning` when it does — without this, results for the earlier one(s) would be silently overwritten in the output dict.
 
 ### `rank_by_metric()` — when weights can't show you the trade-off
 
@@ -244,6 +251,8 @@ result = compare(circuit, hardwares, fidelity_target=0.99, model_magic_state_dis
 
 The T-factory cost model (`autoq_qec/distillation.py`) implements the multi-round 15-to-1 distillation formulas from Beverland, Kliuchnikov, Schoute et al., "Assessing requirements to scale to practical quantum advantage", arXiv:2211.07629 (Appendix C, Table VI; Appendix E, Eqs. C1–C4, E4–E6) — validated against the paper's own worked examples (Table VII) as regression tests (`tests/test_distillation.py`), reproducing their exact numbers (qubits, time, output error) for both a 1-round and a 2-round factory. Two simplifications versus the paper, documented in the module docstring: the per-round factory search is greedy (cheapest distance meeting the round's error target) rather than a global optimum over a full factory catalog, and the physical T-state input error defaults to the hardware's Clifford error rate `p_phys` unless you pass `HardwareProfile.p_t_state` — a separate value for the physical T-gate error, relevant when it differs from the Clifford/measurement error rate (the paper's own motivating case is Majorana qubits — see "Majorana / topological qubits" below). Default is `False` — existing code is unaffected.
 
+Both the public entry point (`magic_state_resources()`) and the lower-level `build_magic_state_factory()` it calls (also usable directly) validate their inputs: a negative T-gate count, an error target outside `(0, 1)` (not a valid probability), a negative `data_circuit_time_us`, or a `p_t_state` outside `(0, 1)` all raise `ValueError` — previously some of these were accepted silently and produced normal-looking but physically meaningless results (e.g. a negative T-gate count producing a negative qubit total).
+
 **Fidelity formula**: `fidelity_circuit = (1 - p_L)^n_gates × (1 - readout_error)^n_logical_qubits × exp(-execution_time_us / T2_us)`. `readout_error` and `T2_us` are optional fields on `HardwareProfile` (default `0.0` / `None`, preserving the old formula if omitted).
 
 **Known limitation: mid-circuit measurement error is not modeled separately.** `readout_error` represents end-of-circuit measurement error only. Real hardware (including Quantinuum's own datasheet, cited above) reports a distinct, usually different "mid-circuit measurement and reset cross-talk error" for measurements that happen mid-circuit — common in real fault-tolerant protocols using dynamic circuits (measurement + conditional reset). This package does not currently distinguish between the two — any measurement in your circuit, wherever it occurs, is treated as if it happens at the end. If your circuit relies heavily on mid-circuit measurement, treat `readout_error`'s contribution to `fidelity_circuit` as an approximation, not a precise model of that specific error source.
@@ -272,7 +281,7 @@ est = AlgorithmEstimator.shor(2048)
 print(est.t_count_estimate, est.t_count_uncertainty)  # ±5x — build the real circuit for precise numbers
 ```
 
-Covers `shor`, `grover`, `qft`, `vqe`. These are rough estimates (±2×–±10× depending on the algorithm) — use `extract_circuit_profile()` on a real circuit whenever possible.
+Covers `shor`, `grover`, `qft`, `vqe`. These are rough estimates (±2×–±10× depending on the algorithm) — use `extract_circuit_profile()` on a real circuit whenever possible. `shor`/`grover`/`qft` raise `ValueError` for non-finite (`NaN`/`inf`) input instead of silently returning `NaN` estimates.
 
 ## Hardware profiles
 
@@ -296,7 +305,7 @@ plot_tradeoff(result, output="tradeoff.png")  # log-log qubits × time, color = 
 ## Test
 
 ```bash
-pytest tests/ -v   # 142 tests, all verify physics not arithmetic
+pytest tests/ -v   # 180 tests, all verify physics not arithmetic
 ```
 
 ## What the tests check (unlike most QEC tools)

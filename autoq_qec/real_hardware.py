@@ -30,6 +30,52 @@ class CalibratedHardware:
     # diferente da porta T física (ex.: Majorana, proteção topológica só
     # em Clifford).
     p_t_state: Optional[float] = None
+
+    def __post_init__(self):
+        """
+        Mesma validação de HardwareProfile.__post_init__ (qec_estimator.py)
+        -- CalibratedHardware não tinha nenhuma checagem própria (achado
+        testando T1_us=0 e p_2q_mean negativo: eram aceitos silenciosamente
+        aqui e só rejeitados depois, em from_calibrated(), inconsistente
+        com o resto do pacote; T2_us=NaN passava por tudo sem erro e
+        rank() acabava retornando lista vazia sem explicação nenhuma).
+        NaN é checado explicitamente porque "<= 0" nunca captura NaN
+        (comparações com NaN são sempre False em Python).
+        """
+        if isinstance(self.n_qubits, float) and math.isnan(self.n_qubits):
+            raise ValueError(f"n_qubits deve ser > 0, recebido {self.n_qubits}")
+        if self.n_qubits <= 0:
+            raise ValueError(f"n_qubits deve ser > 0, recebido {self.n_qubits}")
+        for field_name in ("p_1q_mean", "p_2q_mean", "p_2q_worst"):
+            v = getattr(self, field_name)
+            if math.isnan(v) or not (0 < v < 1):
+                raise ValueError(f"{field_name} deve estar em (0, 1), recebido {v}")
+        for field_name in ("t_1q_ns", "t_2q_ns"):
+            v = getattr(self, field_name)
+            if math.isnan(v) or v <= 0:
+                raise ValueError(f"{field_name} deve ser > 0, recebido {v}")
+        if not self.name or not self.name.strip():
+            raise ValueError(f"name não pode ser vazio, recebido {self.name!r}")
+        if not self.topology or not self.topology.strip():
+            raise ValueError(f"topology não pode ser vazio, recebido {self.topology!r}")
+        if math.isnan(self.T1_us) or self.T1_us <= 0:
+            raise ValueError(f"T1_us deve ser > 0, recebido {self.T1_us}")
+        if self.T2_us is not None and (math.isnan(self.T2_us) or self.T2_us <= 0):
+            raise ValueError(f"T2_us deve ser > 0 ou None, recebido {self.T2_us}")
+        # Mesma relação de Bloch de HardwareProfile.__post_init__ (qec_estimator.py)
+        # -- T2 > 2*T1 é fisicamente impossível. Tolerância relativa (1e-9) evita
+        # rejeitar ruído de ponto flutuante genuíno na fronteira.
+        if self.T2_us is not None and self.T2_us > 2 * self.T1_us * (1 + 1e-9):
+            raise ValueError(
+                f"T2_us ({self.T2_us}) não pode exceder 2*T1_us ({2*self.T1_us}) "
+                f"-- viola a relação de Bloch 1/T2 = 1/(2*T1) + 1/Tφ."
+            )
+        if math.isnan(self.readout_error) or not (0 <= self.readout_error < 1):
+            raise ValueError(f"readout_error deve estar em [0, 1), recebido {self.readout_error}")
+        if self.p_t_state is not None and (math.isnan(self.p_t_state)
+                                            or not (0 < self.p_t_state < 1)):
+            raise ValueError(f"p_t_state deve estar em (0, 1) ou ser None, recebido {self.p_t_state}")
+
     # p_phys efetivo para QEC: geralmente dominado por 2q gates
     @property
     def p_phys(self) -> float:

@@ -53,20 +53,43 @@ class HardwareProfile:
         nenhum erro; readout_error fora de [0,1] gerava fidelity_circuit
         > 1.0).
         """
-        if self.t_gate_ns <= 0:
+        if not self.name or not self.name.strip():
+            raise ValueError(f"name não pode ser vazio, recebido {self.name!r}")
+        if not self.topology or not self.topology.strip():
+            raise ValueError(f"topology não pode ser vazio, recebido {self.topology!r}")
+        if math.isnan(self.t_gate_ns) or self.t_gate_ns <= 0:
             raise ValueError(f"t_gate_ns deve ser > 0, recebido {self.t_gate_ns}")
-        if not (0 < self.p_phys < 1):
+        if math.isnan(self.p_phys) or not (0 < self.p_phys < 1):
             raise ValueError(f"p_phys deve estar em (0, 1), recebido {self.p_phys}")
-        if not (0 <= self.readout_error < 1):
+        if math.isnan(self.readout_error) or not (0 <= self.readout_error < 1):
             raise ValueError(f"readout_error deve estar em [0, 1), recebido {self.readout_error}")
-        if self.T1_us is not None and self.T1_us <= 0:
+        # NaN não é capturado por "<= 0" (comparações com NaN são sempre
+        # False em Python) -- checado explicitamente para cada campo opcional
+        # (achado testando CalibratedHardware.T2_us=nan: passava por aqui
+        # sem erro e produzia rank() silenciosamente vazio mais adiante).
+        if self.T1_us is not None and (math.isnan(self.T1_us) or self.T1_us <= 0):
             raise ValueError(f"T1_us deve ser > 0 ou None, recebido {self.T1_us}")
-        if self.T2_us is not None and self.T2_us <= 0:
+        if self.T2_us is not None and (math.isnan(self.T2_us) or self.T2_us <= 0):
             raise ValueError(f"T2_us deve ser > 0 ou None, recebido {self.T2_us}")
-        if self.t_meas_ns is not None and self.t_meas_ns <= 0:
+        # Relação de Bloch: 1/T2 = 1/(2*T1) + 1/Tφ, e como Tφ (defasagem
+        # pura) nunca é negativo, T2 <= 2*T1 sempre -- T2 maior que isso é
+        # fisicamente impossível (achado externo: T1=100, T2=300 aceito
+        # silenciosamente). Tolerância relativa pequena (1e-9) para não
+        # rejeitar ruído de ponto flutuante genuíno na fronteira (ex.:
+        # T2 = 2*T1 + 1e-12 por erro de arredondamento, não violação real).
+        if (self.T1_us is not None and self.T2_us is not None
+                and self.T2_us > 2 * self.T1_us * (1 + 1e-9)):
+            raise ValueError(
+                f"T2_us ({self.T2_us}) não pode exceder 2*T1_us "
+                f"({2*self.T1_us}) -- viola a relação de Bloch "
+                f"1/T2 = 1/(2*T1) + 1/Tφ (Tφ, tempo de defasagem pura, "
+                f"nunca é negativo)."
+            )
+        if self.t_meas_ns is not None and (math.isnan(self.t_meas_ns) or self.t_meas_ns <= 0):
             raise ValueError(f"t_meas_ns deve ser > 0 ou None, recebido {self.t_meas_ns}")
-        if self.p_t_state is not None and self.p_t_state <= 0:
-            raise ValueError(f"p_t_state deve ser > 0 ou None, recebido {self.p_t_state}")
+        if self.p_t_state is not None and (math.isnan(self.p_t_state)
+                                            or not (0 < self.p_t_state < 1)):
+            raise ValueError(f"p_t_state deve estar em (0, 1) ou ser None, recebido {self.p_t_state}")
 
     @classmethod
     def from_calibrated(cls, cal) -> "HardwareProfile":
@@ -183,6 +206,16 @@ def _steane_model(p_phys: float, p_L_target: float,
     Steane [[7,1,3]]: código CSS fixo, d=3, p_L ≈ 21*p²
     Só é viável se p < p_th E p_L_target > 21*p²
     """
+    if p_phys <= 0:
+        raise ValueError(
+            f"p_phys deve ser > 0, recebido {p_phys}. p_phys=0 não tem "
+            f"significado físico (nenhuma porta é livre de erro) e a "
+            f"fórmula deste modelo (21*p²) aceita 0 sem erro matemático "
+            f"(diferente de Surface/Bacon-Shor/Floquet, que usam log(p) e "
+            f"já falham nesse caso), produzindo fidelidade=1.0 falsa. "
+            f"HardwareProfile já rejeita p_phys<=0 na API pública -- esta "
+            f"checagem protege quem chama _steane_model() diretamente."
+        )
     if p_phys >= p_th:
         raise ValueError(f"p_phys={p_phys:.4f} ≥ threshold_Steane={p_th}")
     p_L = 21 * p_phys**2
@@ -662,17 +695,43 @@ def compare(circuit, hardware_list: list[HardwareProfile],
     chamada -- rank() lê esse valor pra montar a mensagem de "não atinge o
     alvo" em Recommendation.bottleneck (ver meets_fidelity_target em
     CodeResult/Recommendation, e "Two-tier ranking" no README).
+
+    Se dois ou mais hardwares em `hardware_list` tiverem o mesmo `.name`,
+    os resultados NÃO se sobrescrevem mais silenciosamente (bug corrigido
+    nesta versão: antes, `output["results"][hw.name] = ...` num loop fazia
+    o último hardware com aquele nome apagar os anteriores, e o usuário não
+    tinha como saber que perdeu resultado). Ocorrências repetidas agora
+    recebem um sufixo determinístico (" #2", " #3", ...) baseado na ordem
+    de entrada, e um aviso (`warnings.warn`) é emitido -- útil, por exemplo,
+    para comparar duas calibrações diferentes do "mesmo" chip mantendo o
+    nome de exibição original.
     """
     profile = extract_circuit_profile(circuit)
     output = {"circuit_profile": profile, "results": {}, "hardware_profiles": {},
               "fidelity_target": fidelity_target}
+    seen_names: dict[str, int] = {}
     for hw in hardware_list:
         hw_profile = profile
         coupling_map = _coupling_map_for_topology(hw.topology, circuit.num_qubits)
         if coupling_map is not None:
             hw_profile = extract_circuit_profile(circuit, coupling_map=coupling_map)
-        output["results"][hw.name] = estimate(
+
+        key = hw.name
+        if key in seen_names:
+            seen_names[key] += 1
+            key = f"{hw.name} #{seen_names[hw.name]}"
+            warnings.warn(
+                f"Dois ou mais hardwares em hardware_list têm o nome "
+                f"'{hw.name}' -- desambiguado automaticamente como '{key}' "
+                f"para não perder resultados. Considere nomes únicos em "
+                f"HardwareProfile.name se isso não for intencional.",
+                stacklevel=2,
+            )
+        else:
+            seen_names[key] = 1
+
+        output["results"][key] = estimate(
             hw_profile, hw, fidelity_target, model_magic_state_distillation
         )
-        output["hardware_profiles"][hw.name] = hw
+        output["hardware_profiles"][key] = hw
     return output

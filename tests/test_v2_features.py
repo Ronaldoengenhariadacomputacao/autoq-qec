@@ -9,12 +9,13 @@ from qiskit import QuantumCircuit
 
 from autoq_qec.qec_estimator import (
     extract_circuit_profile, estimate, compare,
-    _surface_code_model, _floquet_code_model,
+    _surface_code_model, _floquet_code_model, _steane_model,
     HardwareProfile,
 )
 from autoq_qec.recommender import rank, rank_by_metric
-from autoq_qec.real_hardware import HARDWARE_PROFILES
+from autoq_qec.real_hardware import HARDWARE_PROFILES, CalibratedHardware
 from autoq_qec.algorithm_estimator import AlgorithmEstimator
+from autoq_qec.distillation import magic_state_resources, build_magic_state_factory
 from unittest.mock import patch, MagicMock
 
 
@@ -1003,6 +1004,292 @@ class TestRankByMetric(unittest.TestCase):
         self.assertGreater(len(set(vencedores.values())), 1,
             "Esperava vencedores diferentes por métrica isolada neste circuito "
             f"(achado nesta sessão) — obteve: {vencedores}")
+
+
+class TestInvalidInputsAndWeights(unittest.TestCase):
+    """
+    Regressão dos 6 bugs de entradas/pesos inválidos encontrados testando
+    o pacote real (v3.4.1) como usuário real. Cada bug era ou (a) um crash
+    com mensagem ruim, ou (b) pior — aceito silenciosamente e propagado até
+    produzir um resultado sem sentido (ranking invertido, score=NaN, lista
+    vazia sem explicação).
+    """
+
+    def _qft4(self):
+        qc = QuantumCircuit(4)
+        for i in range(4):
+            qc.h(i)
+            for j in range(i + 1, 4):
+                qc.cp(math.pi / 2 ** (j - i), j, i)
+        return qc
+
+    def _compare_result(self, fidelity_target=0.01):
+        hw = HardwareProfile.from_calibrated(list(HARDWARE_PROFILES.values())[0])
+        return compare(self._qft4(), [hw], fidelity_target=fidelity_target)
+
+    # --- Bug 1: pesos todos zero ---
+    def test_rank_pesos_todos_zero_rejeitado(self):
+        cmp_result = self._compare_result()
+        with self.assertRaises(ValueError):
+            rank(cmp_result, weight_qubits=0.0, weight_time=0.0, weight_fidelity=0.0)
+
+    def test_rank_peso_individual_zero_ainda_permitido(self):
+        """rank_by_metric() depende disto: isola cada critério zerando os
+        outros dois, nunca os três ao mesmo tempo."""
+        cmp_result = self._compare_result()
+        recs = rank(cmp_result, weight_qubits=1.0, weight_time=0.0, weight_fidelity=0.0)
+        self.assertIsInstance(recs, list)
+
+    # --- Bug 2: peso negativo ---
+    def test_rank_peso_negativo_rejeitado(self):
+        cmp_result = self._compare_result()
+        with self.assertRaises(ValueError):
+            rank(cmp_result, weight_qubits=-1.0, weight_time=1.0, weight_fidelity=1.0)
+
+    # --- Bug 3: peso NaN ---
+    def test_rank_peso_nan_rejeitado(self):
+        cmp_result = self._compare_result()
+        with self.assertRaises(ValueError):
+            rank(cmp_result, weight_qubits=float("nan"), weight_time=0.3, weight_fidelity=0.2)
+
+    # --- Bug 4: CalibratedHardware sem validação (NaN não capturado por "<=0") ---
+    def _calibrated_hardware_base_kwargs(self):
+        return dict(
+            name="teste", n_qubits=100, p_1q_mean=0.001, p_2q_mean=0.01,
+            p_2q_worst=0.02, t_1q_ns=50.0, t_2q_ns=300.0, T1_us=100.0,
+            T2_us=50.0, readout_error=0.01, topology="heavy-hex", source="teste",
+        )
+
+    def test_calibrated_hardware_t2_nan_rejeitado(self):
+        kwargs = self._calibrated_hardware_base_kwargs()
+        kwargs["T2_us"] = float("nan")
+        with self.assertRaises(ValueError):
+            CalibratedHardware(**kwargs)
+
+    def test_calibrated_hardware_t1_zero_rejeitado(self):
+        kwargs = self._calibrated_hardware_base_kwargs()
+        kwargs["T1_us"] = 0.0
+        with self.assertRaises(ValueError):
+            CalibratedHardware(**kwargs)
+
+    def test_calibrated_hardware_p2q_negativo_rejeitado(self):
+        kwargs = self._calibrated_hardware_base_kwargs()
+        kwargs["p_2q_mean"] = -0.5
+        with self.assertRaises(ValueError):
+            CalibratedHardware(**kwargs)
+
+    def test_calibrated_hardware_t2_none_ainda_permitido(self):
+        """HARDWARE_PROFILES["Majorana_..."] usa T2_us=None de propósito
+        (sem análogo público reportado) -- não pode quebrar."""
+        kwargs = self._calibrated_hardware_base_kwargs()
+        kwargs["T2_us"] = None
+        ch = CalibratedHardware(**kwargs)
+        self.assertIsNone(ch.T2_us)
+
+    def test_hardware_profile_t2_nan_rejeitado(self):
+        """Mesmo gap existia em HardwareProfile.__post_init__ (não só em
+        CalibratedHardware) -- "<= 0" nunca captura NaN em Python."""
+        with self.assertRaises(ValueError):
+            HardwareProfile(name="t", t_gate_ns=100, p_phys=0.01,
+                             topology="heavy-hex", T2_us=float("nan"))
+
+    # --- Bug 5: NaN/inf em shor/grover/qft ---
+    def test_qft_nan_rejeitado(self):
+        with self.assertRaises(ValueError):
+            AlgorithmEstimator.qft(float("nan"))
+
+    def test_qft_inf_rejeitado(self):
+        with self.assertRaises(ValueError):
+            AlgorithmEstimator.qft(float("inf"))
+
+    def test_shor_nan_rejeitado(self):
+        with self.assertRaises(ValueError):
+            AlgorithmEstimator.shor(float("nan"))
+
+    def test_grover_inf_rejeitado(self):
+        with self.assertRaises(ValueError):
+            AlgorithmEstimator.grover(float("inf"))
+
+    def test_qft_valor_normal_ainda_funciona(self):
+        est = AlgorithmEstimator.qft(4)
+        self.assertEqual(est.n_logical_qubits, 4)
+
+    # --- Bug 6: nomes de hardware duplicados perdiam resultado silenciosamente ---
+    def test_compare_nomes_duplicados_nao_perde_resultado(self):
+        hw1 = HardwareProfile.from_calibrated(list(HARDWARE_PROFILES.values())[0])
+        hw2 = HardwareProfile(name=hw1.name, t_gate_ns=hw1.t_gate_ns,
+                               p_phys=hw1.p_phys, topology=hw1.topology,
+                               T1_us=50.0)  # T1 diferente, nome igual
+        with self.assertWarns(UserWarning):
+            result = compare(self._qft4(), [hw1, hw2], fidelity_target=0.01)
+        self.assertEqual(len(result["results"]), 2,
+            "os dois hardwares deveriam ter chaves separadas, não uma sobrescrevendo a outra")
+
+    def test_compare_nomes_diferentes_sem_aviso(self):
+        """Regressão: hardwares com nomes já distintos não devem gerar aviso."""
+        hw1 = HardwareProfile.from_calibrated(list(HARDWARE_PROFILES.values())[0])
+        hw2 = HardwareProfile.from_calibrated(list(HARDWARE_PROFILES.values())[1])
+        with self.assertRaises(AssertionError):
+            # assertWarns falha (AssertionError) se NENHUM warning for emitido
+            with self.assertWarns(UserWarning):
+                compare(self._qft4(), [hw1, hw2], fidelity_target=0.01)
+
+
+class TestPhysicallyMeaninglessInputs(unittest.TestCase):
+    """
+    Regressão de 2 bugs reportados externamente: resultados sem sentido
+    físico que não paravam a execução (nem crash, nem validação) --
+    diferente da classe de bug de TestInvalidInputsAndWeights (que eram
+    todos "aceito silenciosamente"), estes dois eram "calculado até o fim
+    e devolvido como se fosse um resultado válido".
+    """
+
+    def test_magic_state_resources_t_count_negativo_rejeitado(self):
+        with self.assertRaises(ValueError):
+            magic_state_resources(
+                t_count=-1, p_phys=0.001, t_gate_ns=100,
+                target_t_state_error=1e-6, data_circuit_time_us=90,
+            )
+
+    def test_magic_state_resources_t_count_zero_ainda_funciona(self):
+        """Regressão: t_count=0 é um caso especial legítimo (circuito sem
+        T-gates), não deve ser confundido com t_count negativo."""
+        extra_qubits, n_factories, factory = magic_state_resources(
+            t_count=0, p_phys=0.001, t_gate_ns=100,
+            target_t_state_error=1e-6, data_circuit_time_us=90,
+        )
+        self.assertEqual((extra_qubits, n_factories, factory), (0, 0, None))
+
+    def test_magic_state_resources_t_count_positivo_ainda_funciona(self):
+        extra_qubits, n_factories, factory = magic_state_resources(
+            t_count=100, p_phys=0.001, t_gate_ns=100,
+            target_t_state_error=1e-6, data_circuit_time_us=90,
+        )
+        self.assertGreaterEqual(extra_qubits, 0)
+        self.assertGreaterEqual(n_factories, 0)
+
+    def test_steane_model_p_phys_zero_rejeitado(self):
+        """p_phys=0 produzia fidelidade=1.0 (perfeita, falsa) sem erro --
+        os outros 3 modelos (surface/bacon_shor/floquet) já falhavam aqui
+        via math domain error do log(); só o Steane (fórmula 21*p²) aceitava
+        p=0 silenciosamente."""
+        with self.assertRaises(ValueError):
+            _steane_model(p_phys=0.0, p_L_target=1e-6)
+
+    def test_steane_model_p_phys_valido_ainda_funciona(self):
+        d, q_per_L, cycles, p_L = _steane_model(p_phys=0.001, p_L_target=1e-3)
+        self.assertEqual(d, 3)
+        self.assertAlmostEqual(p_L, 21 * 0.001 ** 2)
+
+
+class TestBlochRelationAndRemainingGaps(unittest.TestCase):
+    """
+    Regressão do segundo lote reportado externamente: T2 > 2*T1 (viola a
+    relação de Bloch), p_t_state >= 1, name/topology vazios em
+    HardwareProfile/CalibratedHardware, e target_t_state_error/
+    data_circuit_time_us inválidos em magic_state_resources().
+    """
+
+    def _hw_kwargs(self, **overrides):
+        kwargs = dict(
+            name="test-hw", t_gate_ns=50, p_phys=0.001, readout_error=0.01,
+            T1_us=100, T2_us=100, t_meas_ns=200, p_t_state=None,
+            topology="linear",
+        )
+        kwargs.update(overrides)
+        return kwargs
+
+    def test_hardware_profile_t2_maior_que_2x_t1_rejeitado(self):
+        with self.assertRaises(ValueError):
+            HardwareProfile(**self._hw_kwargs(T1_us=100, T2_us=300))
+
+    def test_hardware_profile_t2_igual_2x_t1_ainda_funciona(self):
+        HardwareProfile(**self._hw_kwargs(T1_us=100, T2_us=200))
+
+    def test_hardware_profile_t2_ruido_float_na_fronteira_nao_rejeitado(self):
+        """T2 = 2*T1 + 1e-9 (ruído de ponto flutuante) não deve ser
+        confundido com uma violação real da relação de Bloch."""
+        HardwareProfile(**self._hw_kwargs(T1_us=100.0, T2_us=200.0 + 1e-9))
+
+    def test_hardware_profile_p_t_state_maior_igual_1_rejeitado(self):
+        with self.assertRaises(ValueError):
+            HardwareProfile(**self._hw_kwargs(p_t_state=1.5))
+
+    def test_hardware_profile_p_t_state_valido_ainda_funciona(self):
+        HardwareProfile(**self._hw_kwargs(p_t_state=0.05))
+
+    def test_hardware_profile_name_vazio_rejeitado(self):
+        with self.assertRaises(ValueError):
+            HardwareProfile(**self._hw_kwargs(name=""))
+
+    def test_hardware_profile_topology_vazio_rejeitado(self):
+        with self.assertRaises(ValueError):
+            HardwareProfile(**self._hw_kwargs(topology=""))
+
+    def _cal_kwargs(self, **overrides):
+        kwargs = dict(
+            name="test-cal", n_qubits=27, p_1q_mean=0.001, p_2q_mean=0.01,
+            p_2q_worst=0.02, t_1q_ns=50, t_2q_ns=300, T1_us=100, T2_us=100,
+            readout_error=0.01, topology="heavy-hex", source="test",
+        )
+        kwargs.update(overrides)
+        return kwargs
+
+    def test_calibrated_hardware_t2_maior_que_2x_t1_rejeitado(self):
+        with self.assertRaises(ValueError):
+            CalibratedHardware(**self._cal_kwargs(T1_us=100, T2_us=300))
+
+    def test_calibrated_hardware_p_t_state_maior_igual_1_rejeitado(self):
+        with self.assertRaises(ValueError):
+            CalibratedHardware(**self._cal_kwargs(p_t_state=1.0))
+
+    def test_calibrated_hardware_name_vazio_rejeitado(self):
+        with self.assertRaises(ValueError):
+            CalibratedHardware(**self._cal_kwargs(name=""))
+
+    def test_calibrated_hardware_topology_vazio_rejeitado(self):
+        with self.assertRaises(ValueError):
+            CalibratedHardware(**self._cal_kwargs(topology=""))
+
+    def test_hardware_profiles_reais_ainda_carregam_sem_erro(self):
+        """Sanidade: nenhuma entrada real de HARDWARE_PROFILES cai em
+        nenhuma das novas bordas de validação."""
+        for hw_cal in HARDWARE_PROFILES.values():
+            HardwareProfile.from_calibrated(hw_cal)
+
+    def test_magic_state_resources_target_error_maior_igual_1_rejeitado(self):
+        with self.assertRaises(ValueError):
+            magic_state_resources(
+                t_count=100, p_phys=0.001, t_gate_ns=100,
+                target_t_state_error=1.5, data_circuit_time_us=90,
+            )
+
+    def test_magic_state_resources_data_circuit_time_negativo_rejeitado(self):
+        with self.assertRaises(ValueError):
+            magic_state_resources(
+                t_count=100, p_phys=0.001, t_gate_ns=100,
+                target_t_state_error=1e-6, data_circuit_time_us=-500,
+            )
+
+    def test_build_magic_state_factory_target_error_maior_igual_1_rejeitado(self):
+        """Mesmo gap do magic_state_resources(), mas na função de baixo
+        nível chamada diretamente: target_error=1.5 antes retornava uma
+        MagicStateFactory de aparência normal, silenciosamente."""
+        with self.assertRaises(ValueError):
+            build_magic_state_factory(p_phys=0.001, t_gate_ns=100, target_error=1.5)
+
+    def test_build_magic_state_factory_p_t_state_maior_igual_1_rejeitado(self):
+        """Antes não era rejeitado aqui e produzia um erro de convergência
+        confuso, apontando para p_phys em vez do p_t_state realmente
+        inválido."""
+        with self.assertRaises(ValueError):
+            build_magic_state_factory(p_phys=0.001, t_gate_ns=100,
+                                       target_error=1e-6, p_t_state=1.5)
+
+    def test_build_magic_state_factory_valores_validos_ainda_funcionam(self):
+        factory = build_magic_state_factory(p_phys=0.001, t_gate_ns=100,
+                                             target_error=1e-6)
+        self.assertGreater(factory.qubits, 0)
 
 
 if __name__ == "__main__":

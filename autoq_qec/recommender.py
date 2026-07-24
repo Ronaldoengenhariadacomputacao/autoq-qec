@@ -69,8 +69,28 @@ def rank(compare_result: dict,
     ex. HARDWARE_PROFILES), combinações que violem o limite de T1
     (t_circuit >= 0.5×T1) são excluídas do ranking.
     """
-    if abs(weight_qubits + weight_time + weight_fidelity - 1.0) > 1e-9:
-        total = weight_qubits + weight_time + weight_fidelity
+    # Validação dos pesos (achado testando entradas erradas): pesos NaN
+    # passavam pela checagem de soma (comparações com NaN são sempre False
+    # em Python) e se propagavam silenciosamente pro score; pesos negativos
+    # que somam 1.0 também passavam, produzindo ranking invertido sem
+    # nenhum aviso; todos-zero causava ZeroDivisionError. Peso individual
+    # igual a zero continua permitido de propósito -- é assim que
+    # rank_by_metric() isola cada critério (ver docstring dessa função).
+    for name, w in (("weight_qubits", weight_qubits),
+                     ("weight_time", weight_time),
+                     ("weight_fidelity", weight_fidelity)):
+        if math.isnan(w):
+            raise ValueError(f"{name} não pode ser NaN, recebido {w}")
+        if w < 0:
+            raise ValueError(f"{name} não pode ser negativo, recebido {w}")
+
+    total = weight_qubits + weight_time + weight_fidelity
+    if total == 0:
+        raise ValueError(
+            "weight_qubits + weight_time + weight_fidelity não pode ser "
+            "zero (nenhum critério de ranking estaria ativo)."
+        )
+    if abs(total - 1.0) > 1e-9:
         weight_qubits  /= total
         weight_time    /= total
         weight_fidelity /= total
