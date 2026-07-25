@@ -1,0 +1,22 @@
+{
+  "timestamp": "2026-07-25T17:22:12.622033",
+  "backend": "aer_simulation",
+  "job_id": "SIMULATION",
+  "n_qubits": 4,
+  "shots": 100000,
+  "prediction_autoq_qec": {
+    "code": "Steane [[7,1,3]]",
+    "physical_qubits": 52,
+    "fidelity_predicted": 0.9997955932701602,
+    "execution_time_us": 2.4
+  },
+  "results": {
+    "pi_estimado": 3.14373,
+    "pi_std": 0.000822967192541711,
+    "erro_relativo_pct": 0.06803384925683299,
+    "fidelidade_experimental": 0.9994656633974482,
+    "fidelidade_prevista": 0.9997955932701602,
+    "delta_fidelidade": 0.00032992987271196483,
+    "veredito": "CONSISTENTE"
+  }
+}

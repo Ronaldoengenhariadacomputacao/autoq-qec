@@ -19,9 +19,9 @@ fidelity prediction (0.999796) agreed with the measured fidelity (mean
 0.991584 ± 0.001307) within 0.821 ± 0.131 percentage points — consistently
 inside the 1% threshold used here in all five trials, though with limited
 margin in the worst case. Across five simulation runs (depolarizing noise
-model), the error was an order of magnitude smaller (mean 0.0422% ± 0.0291% in
-π, vs. 1.0716% ± 0.1664% on real hardware) — real hardware showed roughly 25×
-more error in π and 50× more deviation in fidelity than the simulation,
+model), the error was an order of magnitude smaller (mean 0.0472% ± 0.0313% in
+π, vs. 1.0716% ± 0.1664% on real hardware) — real hardware showed roughly 23×
+more error in π and 40× more deviation in fidelity than the simulation,
 quantifying the contribution of noise sources beyond simple depolarizing
 models (readout error, crosstalk, calibration drift).
 
@@ -80,12 +80,17 @@ Depolarizing noise model with IBM Fez published error rates
 
 | Run | π estimate | Error (%) | Measured fidelity | Δ fidelity |
 |---|---|---|---|---|
-| 1 | 3.140250 ± 0.002239 | 0.0427 | 0.999664 | 0.000131 |
+| 1 | 3.143730 ± 0.000823 | 0.0680 | 0.999466 | 0.000330 |
 | 2 | 3.141150 ± 0.001568 | 0.0141 | 0.999889 | 0.000094 |
 | 3 | 3.144440 ± 0.002249 | 0.0906 | 0.999288 | 0.000507 |
 | 4 | 3.140480 ± 0.001363 | 0.0354 | 0.999722 | 0.000074 |
 | 5 | 3.142470 ± 0.001077 | 0.0279 | 0.999781 | 0.000015 |
-| **Mean ± std** | — | **0.0422 ± 0.0291** | **0.999669 ± 0.000229** | **0.000164 ± 0.000196** |
+| **Mean ± std** | — | **0.0472 ± 0.0313** | **0.999629 ± 0.000246** | **0.000204 ± 0.000208** |
+
+*(Run 1 was regenerated 2026-07-25 after the original run's raw JSON was
+accidentally overwritten before being archived — only its printed console
+output survived, so it was re-run to have a verifiable raw file backing every
+row in this table, consistent with the real-hardware trials below.)*
 
 All five runs land comfortably inside the consistency threshold, with large
 margin — as expected, since the depolarizing model is a simplified noise
@@ -139,7 +144,7 @@ zero and below the threshold is what gives the "CONSISTENT" verdict real
 weight, rather than resting on a single lucky trial.
 
 The five simulation runs are similarly tight relative to their own much
-smaller scale (error range 0.014%–0.091%, std 0.0291%), confirming the
+smaller scale (error range 0.014%–0.091%, std 0.0313%), confirming the
 depolarizing-noise baseline itself is stable and reproducible — the
 order-of-magnitude gap to real hardware is not simulation noise, it's a real
 physical gap.
@@ -149,10 +154,10 @@ physical gap.
 | Level | π error (mean ± std) | Fidelity (mean ± std) |
 |---|---|---|
 | Ideal (analytical) | 0% | 0.999796 |
-| Simulation (depolarizing, 5 runs) | 0.0422% ± 0.0291% | 0.999669 ± 0.000229 |
+| Simulation (depolarizing, 5 runs) | 0.0472% ± 0.0313% | 0.999629 ± 0.000246 |
 | Real hardware (IBM Fez, 5 runs) | 1.0716% ± 0.1664% | 0.991584 ± 0.001307 |
 
-Real hardware shows **~25.4× more error in π** and **~50.0× more deviation in
+Real hardware shows **~22.7× more error in π** and **~40.3× more deviation in
 fidelity** than the simulation, now backed by five runs on each side rather
 than a single stochastic sample of each. This is a meaningful, reproducible
 gap — not measurement noise on either side — and quantifies exactly how much
