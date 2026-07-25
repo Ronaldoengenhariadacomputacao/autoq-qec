@@ -57,7 +57,14 @@ items, unrelated to the code-distance bug below).
   needs the optional `[ibm]` extra and is skipped automatically without
   it (previously these 4 tests just failed with an import error in a
   base install, which reads badly as a first impression for someone
-  cloning the repo without installing `qiskit-ibm-runtime`).
+  cloning the repo without installing `qiskit-ibm-runtime`). Also
+  clarifies *why* the extra is needed even though no IBM account or real
+  hardware is used: `unittest.mock.patch` still needs the target module
+  to exist to patch it.
+- Renamed the README comparison section from "What this does that
+  nothing else does" to "How this compares" — the table right below it
+  shows Azure Resource Estimator matching AutoQ QEC on 3 of 4 columns, so
+  the old title claimed more exclusivity than the table itself supports.
 
 191 tests passing (up from 184 pre-fix in this same version; 180 at
 v3.4.2).

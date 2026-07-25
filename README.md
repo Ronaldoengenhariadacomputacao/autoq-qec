@@ -7,7 +7,7 @@
 
 Given any Qiskit circuit and a set of hardware profiles, AutoQ QEC returns a ranked comparison of QEC codes (Surface Code, Floquet Code, Bacon-Shor, Steane [[7,1,3]]) with physically grounded resource estimates: physical qubit count, execution time, and circuit fidelity.
 
-## What this does that nothing else does
+## How this compares
 
 | Tool | Multi-code | Arbitrary circuit | Analytic model | Qiskit-native |
 |---|---|---|---|---|
@@ -308,9 +308,14 @@ plot_tradeoff(result, output="tradeoff.png")  # log-log qubits × time, color = 
 
 ```bash
 pytest tests/ -v   # 191 tests, all verify physics not arithmetic
-# TestIBMLiveCalibration (4 tests) needs the optional [ibm] extra
-# (qiskit-ibm-runtime) -- skipped automatically if it isn't installed.
 ```
+
+`TestIBMLiveCalibration` (4 tests) mocks the `qiskit-ibm-runtime` API via
+`unittest.mock.patch` — no IBM account or real hardware is ever touched. But
+`mock.patch` still needs the *target module* to exist to patch it, so these 4
+tests need the optional `[ibm]` extra installed (`pip install
+"autoq-qec[ibm]"`) even though nothing real is called. Without it, they're
+skipped automatically instead of failing: expect `187 passed, 4 skipped`.
 
 ## What the tests check (unlike most QEC tools)
 
