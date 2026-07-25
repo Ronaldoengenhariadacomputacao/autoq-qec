@@ -2,7 +2,7 @@
 
 **Author:** Ronaldo Rodrigues
 **Date:** July 25, 2026
-**Dataset DOI:** https://doi.org/10.5281/zenodo.21571465
+**Dataset DOI:** https://doi.org/10.5281/zenodo.21571464
 **Related software:** autoq-qec v3.4.3 — https://doi.org/10.5281/zenodo.21560570
 **Repository:** https://github.com/Ronaldoengenhariadacomputacao/autoq-qec
 
@@ -233,5 +233,5 @@ MIT — consistent with autoq-qec.
 ## Citation
 
 If you use this validation dataset, please cite both this record
-(DOI: 10.5281/zenodo.21571465) and the autoq-qec software
+(DOI: 10.5281/zenodo.21571464) and the autoq-qec software
 (DOI: 10.5281/zenodo.21560570).

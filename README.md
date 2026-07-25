@@ -272,7 +272,7 @@ This is an order-of-magnitude estimator, not a calibrated simulator. The table b
 
 The no-readout column is consistently accurate (0.4%–1.4% error). The with-readout column is less precise (1.2%–8.9%) but still directionally correct — treat `fidelity_circuit` as an order-of-magnitude estimate, not a calibrated prediction. **These exact percentages will not reproduce on a future run**: IBM's live calibration drifts daily (this table is a snapshot, not a fixed benchmark), and no fixed random seed underlies the noisy simulation. If you need this validated against *today's* calibration, the methodology above is straightforward to rerun — pull `CalibratedHardware` via `from_ibm_backend()`, build a noisy `AerSimulator` via `NoiseModel.from_backend()`, and compare `state_fidelity`/shot-based classical fidelity against `estimate()`'s `fidelity_circuit`.
 
-**Dedicated multi-trial validation**: see [`validation/VALIDATION_REPORT.md`](validation/VALIDATION_REPORT.md) (DOI: [10.5281/zenodo.21571465](https://doi.org/10.5281/zenodo.21571465)) for a separate benchmark — 5 independent real-hardware trials plus 5 simulation runs on IBM Fez, with publicly verifiable job IDs, reproducible script, and raw JSON data for every run.
+**Dedicated multi-trial validation**: see [`validation/VALIDATION_REPORT.md`](validation/VALIDATION_REPORT.md) (DOI: [10.5281/zenodo.21571464](https://doi.org/10.5281/zenodo.21571464)) for a separate benchmark — 5 independent real-hardware trials plus 5 simulation runs on IBM Fez, with publicly verifiable job IDs, reproducible script, and raw JSON data for every run.
 
 ## Algorithm Estimator
 
