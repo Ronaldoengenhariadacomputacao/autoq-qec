@@ -307,7 +307,9 @@ plot_tradeoff(result, output="tradeoff.png")  # log-log qubits × time, color = 
 ## Test
 
 ```bash
-pytest tests/ -v   # 180 tests, all verify physics not arithmetic
+pytest tests/ -v   # 191 tests, all verify physics not arithmetic
+# TestIBMLiveCalibration (4 tests) needs the optional [ibm] extra
+# (qiskit-ibm-runtime) -- skipped automatically if it isn't installed.
 ```
 
 ## What the tests check (unlike most QEC tools)

@@ -167,6 +167,19 @@ def _surface_code_model(p_phys: float, p_L_target: float,
         d += 2  # próximo ímpar
     if d % 2 == 0:
         d += 1  # d deve ser ímpar no Surface Code rotacionado
+    # Refinamento: o epsilon acima (+1e-9), somado ao arredondamento pra
+    # ímpar (que só sobe), pode superestimar d quando a razão cai
+    # exatamente (ou quase) sobre uma fronteira inteira -- achado testando
+    # p=0.0001/target=1e-9: retornava d=9 (161 qubits) quando d=7 (97
+    # qubits) já satisfaz o alvo exatamente. Verifica o resultado físico
+    # real em vez de confiar na aritmética de log, e desce em passos de 2
+    # (mantendo d ímpar) enquanto o alvo continuar satisfeito.
+    while d > 3:
+        d_menor = d - 2
+        if A * (p_phys / p_th) ** ((d_menor + 1) / 2) <= p_L_target:
+            d = d_menor
+        else:
+            break
     p_L = A * (p_phys / p_th) ** ((d + 1) / 2)
     q_per_logical = 2 * d**2 - 1
     # Ciclos de síndrome por porta lógica fault-tolerant: d (conservative)
@@ -262,6 +275,18 @@ def _floquet_code_model(p_phys: float, p_L_target: float,
     if p_L > p_L_target * (1 + 1e-9):
         d += 2
         p_L = A * (p_phys / p_th) ** ((d + 1) / 2)
+    # Mesmo refinamento de _surface_code_model: o epsilon (+1e-9) somado ao
+    # arredondamento pra ímpar (que só sobe) pode superestimar d quando a
+    # razão cai exatamente sobre uma fronteira inteira. Verifica o
+    # resultado físico real e desce em passos de 2 enquanto o alvo
+    # continuar satisfeito.
+    while d > 3:
+        d_menor = d - 2
+        if A * (p_phys / p_th) ** ((d_menor + 1) / 2) <= p_L_target:
+            d = d_menor
+        else:
+            break
+    p_L = A * (p_phys / p_th) ** ((d + 1) / 2)
     q_per_logical = 4 * d**2 + 8 * (d - 1)
     gate_overhead = d // 2
     return d, q_per_logical, gate_overhead, p_L
@@ -429,7 +454,19 @@ def estimate(circuit_profile: CircuitProfile,
 
     N = circuit_profile.n_physical_gates
     if N == 0:
-        raise ValueError("Circuito tem 0 portas físicas — foi destruído pelo transpile?")
+        if circuit_profile.n_logical_gates == 0:
+            raise ValueError(
+                "Circuito não tem nenhuma porta lógica para estimar recursos "
+                "(só measure()/barrier()/reset(), ou está vazio). Adicione ao "
+                "menos uma porta (H, CX, etc.) antes de chamar compare()/estimate()."
+            )
+        raise ValueError(
+            f"Circuito tinha {circuit_profile.n_logical_gates} porta(s) "
+            "lógica(s), mas 0 portas físicas depois do transpile -- a "
+            "otimização (optimization_level=3) provavelmente cancelou tudo "
+            "(ex.: portas que se anulam). Revise o circuito ou "
+            "chame extract_circuit_profile() manualmente para inspecionar."
+        )
 
     p_L_target = (1 - fidelity_target) / N
     t_ns = hardware.t_gate_ns
@@ -705,7 +742,45 @@ def compare(circuit, hardware_list: list[HardwareProfile],
     de entrada, e um aviso (`warnings.warn`) é emitido -- útil, por exemplo,
     para comparar duas calibrações diferentes do "mesmo" chip mantendo o
     nome de exibição original.
+
+    `hardware_list` é validado antes de qualquer estimativa rodar (achados
+    de teste-como-usuário): passar um único HardwareProfile em vez de uma
+    lista levantava `TypeError: 'HardwareProfile' object is not iterable`
+    sem indicar a causa; passar um CalibratedHardware (ex.: direto de
+    HARDWARE_PROFILES, sem passar por HardwareProfile.from_calibrated())
+    levantava `AttributeError: 'CalibratedHardware' object has no
+    attribute 't_gate_ns'` no meio do loop; e uma lista vazia retornava
+    silenciosamente `results={}` sem nenhum sinal de que nada foi
+    comparado. As três agora levantam `TypeError`/`ValueError` explícitos,
+    antes de processar qualquer hardware -- inclusive numa lista mista,
+    onde um item inválido não desperdiça o trabalho já feito nos válidos,
+    já que a validação roda por completo antes do loop de estimativa.
     """
+    if isinstance(hardware_list, HardwareProfile):
+        raise TypeError(
+            "hardware_list deve ser uma lista de HardwareProfile, não um "
+            "único HardwareProfile. Envolva em uma lista: "
+            "compare(circuit, [hw], ...)."
+        )
+    if not isinstance(hardware_list, (list, tuple)):
+        raise TypeError(
+            "hardware_list deve ser uma lista (ou tupla) de HardwareProfile, "
+            f"recebido {type(hardware_list).__name__}."
+        )
+    if len(hardware_list) == 0:
+        raise ValueError(
+            "hardware_list está vazia -- compare() precisa de ao menos um "
+            "HardwareProfile para comparar."
+        )
+    for i, hw in enumerate(hardware_list):
+        if not isinstance(hw, HardwareProfile):
+            raise TypeError(
+                f"hardware_list[{i}] deve ser um HardwareProfile, recebido "
+                f"{type(hw).__name__}. Se você tem um CalibratedHardware "
+                "(ex.: uma entrada de HARDWARE_PROFILES), converta primeiro "
+                "com HardwareProfile.from_calibrated(...)."
+            )
+
     profile = extract_circuit_profile(circuit)
     output = {"circuit_profile": profile, "results": {}, "hardware_profiles": {},
               "fidelity_target": fidelity_target}

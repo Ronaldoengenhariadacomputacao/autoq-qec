@@ -3,6 +3,65 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.4.3] - 2026-07-25
+
+Found by an external bug report re-testing the fixes shipped in 3.4.2 (138
+tests, 1 real finding), plus a follow-up UX/error-message triage pass (6
+items, unrelated to the code-distance bug below).
+
+### Fixed
+- `_surface_code_model()` (and the identical pattern in
+  `_floquet_code_model()`) could return a non-minimal code distance `d`,
+  overestimating physical qubits by up to ~1.7×. Root cause: the epsilon
+  safety margin (`+1e-9`) added before `ceil()` to guard against
+  floating-point undershoot, combined with the "round up to the next odd
+  `d`" adjustment (which only ever rounds *up*), could overshoot by a full
+  step when the log-ratio solving for the minimal `d` landed exactly (or
+  nearly) on an integer boundary — most likely with round-number inputs
+  (e.g. powers of ten) rather than real calibration data. Example:
+  `_surface_code_model(p_phys=0.0001, p_L_target=1e-9)` returned `d=9`
+  (161 qubits) when `d=7` (97 qubits) already satisfies the target
+  exactly. The error was always conservative (never returned a `d` too
+  small to meet the target), but a resource estimator overestimating by
+  1.7× is still a real planning-relevance problem. Fixed by adding a
+  refinement step after computing `d`: verify the actual formula's output
+  at `d-2`, and step down (keeping `d` odd) while the target is still met,
+  instead of trusting the log-arithmetic rounding alone. `_bacon_shor_model`
+  was checked and does not have this issue (different formula, no
+  odd-distance constraint, no epsilon-before-ceil pattern).
+- `compare()` accepted malformed `hardware_list` and either crashed with a
+  confusing exception or silently produced nothing: a single
+  `HardwareProfile` passed without wrapping it in a list raised
+  `TypeError: 'HardwareProfile' object is not iterable` with no hint; a
+  `CalibratedHardware` passed directly (skipping
+  `HardwareProfile.from_calibrated()`) raised `AttributeError:
+  'CalibratedHardware' object has no attribute 't_gate_ns'` mid-loop; and
+  an empty list silently returned `results={}` with no error at all.
+  `compare()` now validates `hardware_list` up front — before estimating
+  anything — and raises a `TypeError`/`ValueError` that names the exact
+  problem (including which index in the list, for mixed-content lists)
+  and points at the fix (wrap in a list, or call `from_calibrated()`
+  first).
+- `estimate()`'s "0 physical gates" error always blamed the transpiler
+  ("foi destruído pelo transpile?"), even for circuits that never had any
+  logical gates to begin with (e.g. measurement-only circuits). It now
+  distinguishes the two cases: a circuit with zero logical gates gets a
+  message saying so directly; a circuit whose logical gates existed but
+  were optimized away by transpile keeps a message pointing at
+  `optimization_level=3`, now also reporting how many logical gates were
+  lost.
+
+### Changed
+- README's `pytest tests/ -v` line updated from "180 tests" to the
+  current count, and now notes that `TestIBMLiveCalibration` (4 tests)
+  needs the optional `[ibm]` extra and is skipped automatically without
+  it (previously these 4 tests just failed with an import error in a
+  base install, which reads badly as a first impression for someone
+  cloning the repo without installing `qiskit-ibm-runtime`).
+
+191 tests passing (up from 184 pre-fix in this same version; 180 at
+v3.4.2).
+
 ## [3.4.2] - 2026-07-23
 
 Found by user-as-real-user testing round against the published PyPI package,

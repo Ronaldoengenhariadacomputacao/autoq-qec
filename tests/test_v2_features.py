@@ -2,6 +2,7 @@
 Testes do v2.0.0 — Fix 1 (T-count), Fix 2 (overhead d³), Fix 3 (filtro T1),
 Floquet Code e Algorithm Estimator.
 """
+import importlib.util
 import math
 import unittest
 
@@ -17,6 +18,8 @@ from autoq_qec.real_hardware import HARDWARE_PROFILES, CalibratedHardware
 from autoq_qec.algorithm_estimator import AlgorithmEstimator
 from autoq_qec.distillation import magic_state_resources, build_magic_state_factory
 from unittest.mock import patch, MagicMock
+
+_HAS_QISKIT_IBM_RUNTIME = importlib.util.find_spec("qiskit_ibm_runtime") is not None
 
 
 class TestFix1TCount(unittest.TestCase):
@@ -622,6 +625,11 @@ class _FakeConfig:
     n_qubits = 3
 
 
+@unittest.skipUnless(
+    _HAS_QISKIT_IBM_RUNTIME,
+    "qiskit-ibm-runtime não instalado -- estes testes cobrem from_ibm_backend() "
+    "e exigem o extra opcional [ibm] (pip install \"autoq-qec[ibm]\")."
+)
 class TestIBMLiveCalibration(unittest.TestCase):
     """Achados na auditoria com hardware IBM real: unidade de duração,
     nome de porta hardcoded, e crash em qubit/acoplador sem calibração."""
@@ -1290,6 +1298,130 @@ class TestBlochRelationAndRemainingGaps(unittest.TestCase):
         factory = build_magic_state_factory(p_phys=0.001, t_gate_ns=100,
                                              target_error=1e-6)
         self.assertGreater(factory.qubits, 0)
+
+
+class TestMinimalDistanceRefinement(unittest.TestCase):
+    """
+    Regressão de bug reportado externamente: _surface_code_model() (e o
+    mesmo padrão em _floquet_code_model()) podia retornar um d maior que o
+    minimo necessario quando a razao log(target/A)/log(p/p_th) cai
+    exatamente (ou quase) sobre uma fronteira inteira -- o epsilon (+1e-9)
+    somado antes do ceil(), combinado com o arredondamento pra impar (que
+    so sobe, nunca verifica se d-2 ja bastava), superestimava recursos.
+    Caso reportado: p=0.0001, target=1e-9 -- d=7 ja satisfaz (97 qubits),
+    mas o codigo retornava d=9 (161 qubits, 1.7x a mais).
+    """
+
+    def test_surface_code_retorna_d_minimo_na_fronteira_exata(self):
+        d, q, _, p_L = _surface_code_model(0.0001, 1e-9)
+        self.assertEqual(d, 7)
+        self.assertEqual(q, 97)
+        self.assertLessEqual(p_L, 1e-9)
+
+    def test_surface_code_nunca_retorna_d_que_nao_satisfaz_alvo(self):
+        """Regressao: o refinamento nao pode descer demais e violar o
+        alvo -- caso onde d=11 e realmente o minimo (d=9 nao satisfaz)."""
+        d, q, _, p_L = _surface_code_model(2.9e-4, 1e-10)
+        self.assertEqual(d, 11)
+        self.assertLessEqual(p_L, 1e-10)
+
+    def test_surface_code_caso_tipico_nao_regride(self):
+        """Sanidade: um caso ja coberto por outro teste nesta suite nao
+        deve mudar de resultado com o refinamento."""
+        d, q, _, p_L = _surface_code_model(0.001, 1e-6)
+        self.assertLessEqual(p_L, 1e-6)
+        # d-2 nao pode satisfazer o alvo (senao o d retornado nao seria minimo)
+        if d > 3:
+            p_L_menor = 0.1 * (0.001 / 0.01) ** ((d - 2 + 1) / 2)
+            self.assertGreater(p_L_menor, 1e-6)
+
+    def test_floquet_code_retorna_d_minimo_na_fronteira_exata(self):
+        d, q, _, p_L = _floquet_code_model(0.0001, 7e-10)
+        self.assertLessEqual(p_L, 7e-10)
+        # d-2 nao pode satisfazer o alvo (senao o d retornado nao seria minimo)
+        if d > 3:
+            p_L_menor = 0.07 * (0.0001 / 0.01) ** ((d - 2 + 1) / 2)
+            self.assertGreater(p_L_menor, 7e-10)
+
+
+class TestValidacaoCompareEEstimate(unittest.TestCase):
+    """
+    v3.4.3: compare() e estimate() aceitavam entradas mal-formadas e
+    falhavam com exceções crípticas ou, pior, silenciosamente -- achado
+    numa rodada de triagem de bugs de UX (6 itens), não relacionados ao
+    bug de code distance corrigido na mesma versão:
+
+    - hardware_list=um HardwareProfile só (sem lista): TypeError sem
+      indicar a causa ("'HardwareProfile' object is not iterable").
+    - hardware_list=[CalibratedHardware, ...] (sem passar por
+      from_calibrated() primeiro): AttributeError vazando um detalhe de
+      implementação interno ('t_gate_ns') no meio do loop.
+    - hardware_list=[] (lista vazia): nenhuma exceção, resultado
+      silenciosamente vazio.
+    - circuito só com measure()/barrier()/reset() (0 portas físicas e 0
+      lógicas): mensagem genérica "destruído pelo transpile?", quando na
+      verdade o circuito nunca teve portas -- nada foi destruído.
+    """
+
+    def _qc(self):
+        qc = QuantumCircuit(2); qc.h(0); qc.cx(0, 1)
+        return qc
+
+    def _hw(self):
+        return HardwareProfile("Teste", t_gate_ns=100, p_phys=0.001, topology="grid")
+
+    def test_hardware_unico_sem_lista_levanta_typeerror_explicativo(self):
+        with self.assertRaises(TypeError) as ctx:
+            compare(self._qc(), self._hw(), 0.99)
+        msg = str(ctx.exception)
+        self.assertIn("lista", msg)
+        self.assertIn("[hw]", msg)
+
+    def test_calibratedhardware_direto_levanta_typeerror_explicativo(self):
+        with self.assertRaises(TypeError) as ctx:
+            compare(self._qc(), [HARDWARE_PROFILES["IBM_Heron_r2"]], 0.99)
+        msg = str(ctx.exception)
+        self.assertIn("CalibratedHardware", msg)
+        self.assertIn("from_calibrated", msg)
+
+    def test_lista_vazia_levanta_valueerror_em_vez_de_silencio(self):
+        with self.assertRaises(ValueError) as ctx:
+            compare(self._qc(), [], 0.99)
+        self.assertIn("vazia", str(ctx.exception))
+
+    def test_tipo_nao_lista_levanta_typeerror(self):
+        with self.assertRaises(TypeError):
+            compare(self._qc(), "not-a-list", 0.99)
+
+    def test_item_invalido_em_lista_mista_identifica_indice(self):
+        with self.assertRaises(TypeError) as ctx:
+            compare(self._qc(), [self._hw(), HARDWARE_PROFILES["IBM_Heron_r2"]], 0.99)
+        self.assertIn("hardware_list[1]", str(ctx.exception))
+
+    def test_circuito_so_medicao_diferencia_de_transpile_destrutivo(self):
+        qc = QuantumCircuit(2, 2)
+        qc.measure(0, 0); qc.measure(1, 1)
+        prof = extract_circuit_profile(qc)
+        self.assertEqual(prof.n_logical_gates, 0)
+        with self.assertRaises(ValueError) as ctx:
+            estimate(prof, self._hw(), 0.99)
+        msg = str(ctx.exception)
+        self.assertNotIn("transpile", msg)
+        self.assertIn("nenhuma porta lógica", msg)
+
+    def test_circuito_zerado_por_transpile_ainda_menciona_transpile(self):
+        """Caso oposto: portas lógicas existem mas o transpile as cancelou
+        -- a mensagem antiga ainda se aplica aqui, só que agora citando
+        quantas portas lógicas existiam."""
+        from autoq_qec.qec_estimator import CircuitProfile
+        prof_fake = CircuitProfile(n_logical_qubits=2, n_logical_gates=2,
+                                    n_physical_gates=0, depth_physical=0,
+                                    t_count=0, cx_count=0)
+        with self.assertRaises(ValueError) as ctx:
+            estimate(prof_fake, self._hw(), 0.99)
+        msg = str(ctx.exception)
+        self.assertIn("transpile", msg)
+        self.assertIn("2", msg)
 
 
 if __name__ == "__main__":
