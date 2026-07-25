@@ -1,0 +1,22 @@
+{
+  "timestamp": "2026-07-25T15:04:03.282313",
+  "backend": "ibm_fez",
+  "job_id": "d9if92shonhs73aedc7g",
+  "n_qubits": 4,
+  "shots": 100000,
+  "prediction_autoq_qec": {
+    "code": "Steane [[7,1,3]]",
+    "physical_qubits": 52,
+    "fidelity_predicted": 0.9997955932701602,
+    "execution_time_us": 2.4
+  },
+  "results": {
+    "pi_estimado": 3.1028599999999997,
+    "pi_std": 0.020485870740586075,
+    "erro_relativo_pct": 1.2328986555763324,
+    "fidelidade_experimental": 0.9903168366025517,
+    "fidelidade_prevista": 0.9997955932701602,
+    "delta_fidelidade": 0.009478756667608557,
+    "veredito": "CONSISTENTE"
+  }
+}
