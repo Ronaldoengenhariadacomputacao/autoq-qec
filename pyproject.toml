@@ -38,5 +38,8 @@ Repository = "https://github.com/Ronaldoengenhariadacomputacao/autoq-qec"
 Issues = "https://github.com/Ronaldoengenhariadacomputacao/autoq-qec/issues"
 ORCID = "https://orcid.org/0009-0006-7449-1190"
 
+[tool.setuptools.packages.find]
+include = ["autoq_qec*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
