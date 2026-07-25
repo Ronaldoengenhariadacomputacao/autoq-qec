@@ -10,7 +10,7 @@ from qiskit import QuantumCircuit
 
 from autoq_qec.qec_estimator import (
     extract_circuit_profile, estimate, compare,
-    _surface_code_model, _floquet_code_model, _steane_model,
+    _surface_code_model, _floquet_code_model, _steane_model, _bacon_shor_model,
     HardwareProfile,
 )
 from autoq_qec.recommender import rank, rank_by_metric
@@ -1342,6 +1342,88 @@ class TestMinimalDistanceRefinement(unittest.TestCase):
         if d > 3:
             p_L_menor = 0.07 * (0.0001 / 0.01) ** ((d - 2 + 1) / 2)
             self.assertGreater(p_L_menor, 7e-10)
+
+
+class TestMinimalDistancePropertyBased(unittest.TestCase):
+    """
+    v3.4.3, retest ampliado: em vez de reproduzir só o caso pontual do bug
+    original (p=0.0001, target=1e-9), varre sistematicamente uma grade de
+    valores "redondos" de p_phys/p_L_target -- exatamente o padrão de
+    entrada (potências de dez e múltiplos simples) que causou o bug em
+    primeiro lugar -- verificando a invariante de minimalidade
+    universalmente, não só no caso relatado. Também confirma que
+    Bacon-Shor continua imune, já que sua fórmula não tem o epsilon
+    (+1e-9) nem o arredondamento forçado pra ímpar que causaram o bug em
+    Surface/Floquet.
+    """
+
+    BASES = (1, 1.5, 2, 2.5, 3, 5, 7, 7.5)
+    EXPOENTES_P = (-5, -4, -3.5, -3, -2.5)
+    EXPOENTES_T = (-12, -11, -10, -9, -8, -7, -6, -5, -4)
+
+    def _pares_p_target(self, p_max):
+        for base_p in self.BASES:
+            for exp_p in self.EXPOENTES_P:
+                p_phys = base_p * 10 ** exp_p
+                if not (0 < p_phys < p_max):
+                    continue
+                for base_t in self.BASES:
+                    for exp_t in self.EXPOENTES_T:
+                        yield p_phys, base_t * 10 ** exp_t
+
+    def test_surface_code_d_sempre_minimo_em_grade_sistematica(self):
+        A, p_th = 0.1, 0.01
+        checados = 0
+        for p_phys, target in self._pares_p_target(p_th):
+            d, q, cycles, p_L = _surface_code_model(p_phys, target, p_th, A)
+            checados += 1
+            self.assertLessEqual(
+                p_L, target * (1 + 1e-9),
+                f"alvo violado: p={p_phys}, target={target} -> d={d}, p_L={p_L}")
+            if d > 3:
+                p_L_menor = A * (p_phys / p_th) ** ((d - 2 + 1) / 2)
+                self.assertGreater(
+                    p_L_menor, target,
+                    f"d não-mínimo: p={p_phys}, target={target} -> d={d}, "
+                    f"mas d-2={d-2} também bastaria (p_L={p_L_menor})")
+        self.assertGreater(checados, 500,
+            "grade deveria cobrir várias centenas de combinações")
+
+    def test_floquet_code_d_sempre_minimo_em_grade_sistematica(self):
+        A, p_th = 0.07, 0.01
+        checados = 0
+        for p_phys, target in self._pares_p_target(p_th):
+            d, q, overhead, p_L = _floquet_code_model(p_phys, target, p_th, A)
+            checados += 1
+            self.assertLessEqual(
+                p_L, target * (1 + 1e-9),
+                f"alvo violado: p={p_phys}, target={target} -> d={d}, p_L={p_L}")
+            if d > 3:
+                p_L_menor = A * (p_phys / p_th) ** ((d - 2 + 1) / 2)
+                self.assertGreater(
+                    p_L_menor, target,
+                    f"d não-mínimo: p={p_phys}, target={target} -> d={d}, "
+                    f"mas d-2={d-2} também bastaria (p_L={p_L_menor})")
+        self.assertGreater(checados, 500,
+            "grade deveria cobrir várias centenas de combinações")
+
+    def test_bacon_shor_continua_imune_por_construcao(self):
+        p_th = 0.008
+        checados = 0
+        for p_phys, target in self._pares_p_target(p_th):
+            d, q, overhead, p_L = _bacon_shor_model(p_phys, target, p_th)
+            checados += 1
+            self.assertLessEqual(
+                p_L, target,
+                f"alvo violado: p={p_phys}, target={target} -> d={d}, p_L={p_L}")
+            if d > 2:
+                p_L_menor = (p_phys / p_th) ** (d - 1)
+                self.assertGreater(
+                    p_L_menor, target,
+                    f"d não-mínimo: p={p_phys}, target={target} -> d={d}, "
+                    f"mas d-1={d-1} também bastaria (p_L={p_L_menor})")
+        self.assertGreater(checados, 500,
+            "grade deveria cobrir várias centenas de combinações")
 
 
 class TestValidacaoCompareEEstimate(unittest.TestCase):
