@@ -1,0 +1,17 @@
+{
+  "timestamp": "2026-07-25T17:58:31.039781",
+  "n_qubits": 85,
+  "shots": 100000,
+  "backend": "aer_simulation",
+  "job_id": "SIMULATION",
+  "predicted_fidelity": 0.999089,
+  "results": {
+    "pi_estimado": 3.1407392941176475,
+    "pi_std": 0.0005385510173514169,
+    "erro_relativo_pct": 0.027163275645252512,
+    "fidelidade_experimental": 0.9997866601319636,
+    "fidelidade_prevista": 0.999089,
+    "delta_fidelidade": 0.0006976601319635956,
+    "veredito": "CONSISTENTE"
+  }
+}

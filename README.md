@@ -135,6 +135,13 @@ hw = HardwareProfile.from_calibrated(HARDWARE_PROFILES["IBM_Heron_r2"])
 ```
 
 If you build a `HardwareProfile` by hand and leave `readout_error`/`T1_us`/`T2_us` at their defaults, `compare()`/`estimate()` emit a `UserWarning` naming exactly which of the three are still missing (with a short description of what each one does) — set one and it drops out of the message; set (or load via `from_calibrated()`) all three and the warning stops. `HardwareProfile` (and `CalibratedHardware`, which mirrors the same checks) validates on construction and raises `ValueError` immediately for anything with no physical meaning:
+
+**Careful with a blanket `warnings.filterwarnings("ignore")`** — it's common to reach for this to silence `qiskit`/`qiskit-ibm-runtime` deprecation noise, but it also swallows this `UserWarning` without you noticing (this happened in a real validation session for this project — see `validation/VALIDATION_REPORT.md` section 6, where a suppressed warning masked why a simulation diverged from real hardware for several rounds of testing). Filter by category instead of blanket-ignoring:
+```python
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)  # not just "ignore"
+```
+This still quiets third-party deprecation noise while letting autoq-qec's own `UserWarning`s through — they always name a concrete corrective action.
 - Zero, negative, or `NaN` `t_gate_ns`, `p_phys`, `T1_us`, `T2_us`, or `t_meas_ns` (and `readout_error`/`p_t_state` outside their valid `[0, 1)`/`(0, 1)` ranges) — previously produced silently wrong results (`t_gate_ns=0` gave `execution_time_us=0.0`; `readout_error=5.0` gave `fidelity_circuit` above `1.0`).
 - `T2_us > 2*T1_us` — physically impossible (the Bloch equation `1/T2 = 1/(2·T1) + 1/Tφ` implies `T2 <= 2*T1` always, since pure dephasing time `Tφ` is never negative). A small floating-point tolerance is applied so genuine rounding noise at the boundary isn't mistaken for a real violation.
 - Empty `name` or `topology`.

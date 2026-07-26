@@ -1,0 +1,17 @@
+{
+  "timestamp": "2026-07-25T21:16:49.038905",
+  "n_qubits": 85,
+  "shots": 100000,
+  "backend": "ibm_fez",
+  "job_id": "d9il3doii2cc73ednmmg",
+  "predicted_fidelity": 0.999089,
+  "results": {
+    "pi_estimado": 3.0990771764705882,
+    "pi_std": 0.003011873438348657,
+    "erro_relativo_pct": 1.3533096682863666,
+    "fidelidade_experimental": 0.9893711307201988,
+    "fidelidade_prevista": 0.999089,
+    "delta_fidelidade": 0.009717869279801228,
+    "veredito": "CONSISTENTE"
+  }
+}

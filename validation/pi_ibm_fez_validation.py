@@ -65,7 +65,12 @@ def predict_with_autoq_qec(circuit):
     Retorna o melhor resultado para IBM Fez.
     """
     import warnings
-    warnings.filterwarnings('ignore')
+    # Silencia so o ruido de depreciacao do qiskit/qiskit-ibm-runtime --
+    # NAO usar filterwarnings('ignore') global aqui: isso ja calou uma vez
+    # um UserWarning real do autoq-qec (HardwareProfile incompleto, ver
+    # VALIDATION_REPORT.md secao 6) que apontava exatamente para o gap
+    # entre esta previsao e a validacao em hardware real.
+    warnings.filterwarnings('ignore', category=DeprecationWarning)
     from autoq_qec import compare, rank, HardwareProfile
 
     hardwares = [
