@@ -354,7 +354,9 @@ pytest tests/ -v   # 198 tests, all verify physics not arithmetic
 `mock.patch` still needs the *target module* to exist to patch it, so these 4
 tests need the optional `[ibm]` extra installed (`pip install
 "autoq-qec[ibm]"`) even though nothing real is called. Without it, they're
-skipped automatically instead of failing: expect `187 passed, 4 skipped`.
+skipped automatically instead of failing: expect `190 passed, 4 skipped`
+(plus 4 more failures, not skips, if the optional `[viz]` extra —
+`matplotlib` — isn't installed either; see "Visualization" below).
 
 ## What the tests check (unlike most QEC tools)
 
