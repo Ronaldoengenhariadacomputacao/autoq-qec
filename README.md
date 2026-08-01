@@ -205,6 +205,36 @@ circuit = template.assign_parameters(rng.uniform(0, 2*np.pi, template.num_parame
 result = compare(circuit, hardwares, fidelity_target=0.99)  # now works
 ```
 
+**Large circuits (20+ qubits, tens of thousands of gates) are handled
+reliably** (as of 3.4.4) — `compare()` used to be able to hang for
+~19 minutes on a single hardware profile, or crash outright, on circuits
+this size; it now completes in seconds:
+
+```python
+from qiskit import QuantumCircuit
+from autoq_qec import compare, rank, HARDWARE_PROFILES, HardwareProfile
+
+circuit = QuantumCircuit(20)
+for _ in range(1500):
+    for q in range(19):
+        circuit.cx(q, q + 1)
+    for q in range(20):
+        circuit.rz(0.31, q)
+circuit.measure_all()
+print(circuit.num_qubits, circuit.depth(), circuit.count_ops())
+# 20 4518 OrderedDict([('rz', 30000), ('cx', 28500), ('measure', 20), ('barrier', 1)])
+
+hardwares = [HardwareProfile.from_calibrated(hw) for hw in [
+    HARDWARE_PROFILES["IBM_Heron_r2"],
+    HARDWARE_PROFILES["Quantinuum_H2"],
+]]
+result = compare(circuit, hardwares, fidelity_target=0.99)  # ~25s, not ~19min
+```
+
+This circuit has 58,500 gates — comparable in scale to a UCCSD ansatz for a
+mid-size molecule (real chemistry circuits built via Qiskit Nature in this
+range, up to 28 qubits and depth 93,046, were used to find and fix this).
+
 ## With real IBM calibration data
 
 ```python
@@ -316,7 +346,7 @@ plot_tradeoff(result, output="tradeoff.png")  # log-log qubits × time, color = 
 ## Test
 
 ```bash
-pytest tests/ -v   # 191 tests, all verify physics not arithmetic
+pytest tests/ -v   # 198 tests, all verify physics not arithmetic
 ```
 
 `TestIBMLiveCalibration` (4 tests) mocks the `qiskit-ibm-runtime` API via

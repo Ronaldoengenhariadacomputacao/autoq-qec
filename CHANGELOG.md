@@ -3,6 +3,50 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.4.4] - 2026-08-01
+
+### Fixed
+- `_count_t_gates()` (used internally by `compare()` to count non-Clifford
+  gates) hardcoded `optimization_level=2` for its internal `transpile()`
+  call. For large circuits (tens of thousands of gates — e.g. a UCCSD
+  ansatz beyond ~15 qubits), this optimization level is impractical: it
+  either raises `qiskit.transpiler.exceptions.TranspilerError: Maximum
+  iteration reached (max_iteration=1000)`, or "succeeds" but takes an
+  impractically long time on a single call — measured directly at **1,131.5
+  seconds (~19 minutes)** for an 18-qubit/93,046-depth UCCSD circuit, with
+  no error raised at all. Since `compare()` calls this function once per
+  hardware profile passed, a single multi-hardware comparison on a large
+  circuit could take tens of minutes with no feedback, indistinguishable
+  from a hung process.
+
+  **Fix**: reordered the fallback sequence from `(2, 1, 0)` to `(1, 0, 2)`
+  — level 1 still performs real Clifford-level optimization but completes
+  in seconds; level 2 is now attempted only as a last resort if both 1 and
+  0 fail. Benchmarked on the same 18-qubit circuit: level 0 in 18.2s,
+  level 1 in 27.6s, level 2 in 1,131.5s — all three producing T-counts
+  within 0.14% of each other. **autoq-qec now reliably handles large
+  circuits (20+ qubits, tens of thousands of gates) in seconds instead of
+  hanging or erroring** — see the new "Large circuits" example in the
+  README.
+
+  One caveat, documented directly in the function's docstring: T-count is
+  *not* a perfectly guaranteed invariant across optimization levels — for
+  one circuit tested (a 12-qubit UCCSD ansatz), levels 0/1 gave
+  T-count=186,268 while level 2 gave 186,522 (~0.14% difference, from
+  more aggressive Clifford-cancellation passes at level 2 occasionally
+  also moving a T-gate). This does not change `_count_t_gates()`'s
+  correctness contract (it always returns *a* valid transpilation's
+  T-count), but is a real, small source of variance worth knowing about
+  for circuits near a feasibility threshold.
+
+- Added `TestCountTGatesFallback` (3 regression tests) covering: level 1
+  succeeding immediately (no fallback needed), falling back to level 0 when
+  level 1 raises `TranspilerError`, and only reaching level 2 as a last
+  resort when both 1 and 0 fail.
+
+198 tests collected (190 passing + 4 skipped without the optional `[ibm]`
+extra).
+
 ## [3.4.3] - 2026-07-25
 
 Found by an external bug report re-testing the fixes shipped in 3.4.2 (138

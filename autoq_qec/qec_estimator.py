@@ -299,16 +299,49 @@ def _count_t_gates(circuit) -> int:
     Portas Clifford (H, S, CX) têm custo zero em QEC fault-tolerant.
     optimization_level=2 simplifica ângulos redundantes antes da contagem
     (ex.: T·T·T otimiza para S·T — 1 T-gate real, não 3).
+
+    Para circuitos muito grandes (dezenas de milhares de portas — ex. UCCSD
+    de moléculas com >~15 qubits), optimization_level=2 é inviável na
+    prática: o laço de convergência interno do Qiskit tanto pode não
+    terminar dentro do limite padrão de iterações
+    (`PassManagerError: Maximum iteration reached`) quanto pode "terminar"
+    com sucesso mas levar dezenas de minutos num único circuito (medido:
+    ~19min para um circuito UCCSD de 18 qubits/93k de profundidade — sem
+    lançar nenhum erro, só devagar). Por isso tentamos optimization_level=1
+    primeiro (rápido: segundos, não minutos) e só usamos 2 como último
+    recurso se 1 e 0 falharem.
+
+    O T-count costuma ser praticamente estável entre os níveis 0/1/2 (mesmo
+    valor exato em vários circuitos testados), mas **não é uma invariante
+    garantida**: em pelo menos um caso medido (UCCSD de BeH2, 12 qubits) os
+    níveis 0/1 deram 186268 e o nível 2 deu 186522 — uma diferença pequena
+    (~0.14%) mas real, vinda de passes de otimização mais agressivos no
+    nível 2 que ocasionalmente trocam a estrutura Clifford de um jeito que
+    também move um T-gate. Perto de um limiar de viabilidade, essa diferença
+    mínima pode mudar a classificação de "inviável" para "frágil, mas
+    computável" ou vice-versa. Por isso o nível escolhido aqui deve ser
+    tratado como parte do método (documentado nos resultados), não como um
+    detalhe de implementação sem efeito no resultado.
     """
     from qiskit import transpile
-    t_basis = transpile(
-        circuit,
-        basis_gates=['t', 'tdg', 's', 'sdg', 'h', 'x', 'y', 'z', 'cx'],
-        optimization_level=2,
-        seed_transpiler=42
-    )
-    ops = t_basis.count_ops()
-    return ops.get('t', 0) + ops.get('tdg', 0)
+    from qiskit.transpiler.exceptions import TranspilerError
+
+    basis_gates = ['t', 'tdg', 's', 'sdg', 'h', 'x', 'y', 'z', 'cx']
+    last_error = None
+    for optimization_level in (1, 0, 2):
+        try:
+            t_basis = transpile(
+                circuit,
+                basis_gates=basis_gates,
+                optimization_level=optimization_level,
+                seed_transpiler=42
+            )
+            ops = t_basis.count_ops()
+            return ops.get('t', 0) + ops.get('tdg', 0)
+        except TranspilerError as e:
+            last_error = e
+            continue
+    raise last_error
 
 
 def extract_circuit_profile(circuit, coupling_map=None) -> CircuitProfile:

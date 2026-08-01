@@ -133,6 +133,106 @@ class TestCircuitProfile(unittest.TestCase):
         self.assertEqual(prof.cx_count, 3)
 
 
+class TestCountTGatesFallback(unittest.TestCase):
+    """
+    v3.5.1: para circuitos muito grandes (dezenas de milhares de portas),
+    transpile(..., optimization_level=2) é inviável na prática — tanto pode
+    levantar TranspilerError('Maximum iteration reached') quanto pode
+    "terminar" com sucesso mas levar dezenas de minutos num único circuito
+    (medido: ~19min para um UCCSD real de 18 qubits/93k de profundidade,
+    sem lançar nenhum erro). Por isso _count_t_gates() tenta
+    optimization_level=1 primeiro (rápido, segundos), depois 0, e só usa 2
+    como último recurso. Reproduzido de verdade com circuitos UCCSD reais
+    de N2 (20 qubits) e CH4 (18 qubits) nesta sessão antes de escrever este
+    teste; aqui simulamos via mock para manter o teste rápido.
+    """
+
+    def test_tenta_nivel_1_primeiro_e_nao_precisa_de_fallback_no_caso_normal(self):
+        from unittest import mock
+        from autoq_qec.qec_estimator import _count_t_gates
+
+        qc = QuantumCircuit(1)
+        qc.t(0)
+        real_transpile = __import__('qiskit').transpile
+
+        chamadas = []
+        def fake_transpile(circuit, basis_gates, optimization_level, seed_transpiler):
+            chamadas.append(optimization_level)
+            return real_transpile(circuit, basis_gates=basis_gates,
+                                   optimization_level=optimization_level,
+                                   seed_transpiler=seed_transpiler)
+
+        with mock.patch('qiskit.transpile', side_effect=fake_transpile):
+            t_count = _count_t_gates(qc)
+
+        self.assertEqual(chamadas, [1],
+            "Deve tentar nivel 1 primeiro e nao precisar de mais nada quando ja funciona")
+        self.assertEqual(t_count, 1)
+
+    def test_cai_para_nivel_0_quando_nivel_1_estoura_iteracoes(self):
+        from unittest import mock
+        from qiskit.transpiler.exceptions import TranspilerError
+        from autoq_qec.qec_estimator import _count_t_gates
+
+        qc = QuantumCircuit(1)
+        qc.t(0)
+        real_transpile = __import__('qiskit').transpile
+
+        chamadas = []
+        def fake_transpile(circuit, basis_gates, optimization_level, seed_transpiler):
+            chamadas.append(optimization_level)
+            if optimization_level == 1:
+                raise TranspilerError("Maximum iteration reached. max_iteration=1000")
+            return real_transpile(circuit, basis_gates=basis_gates,
+                                   optimization_level=optimization_level,
+                                   seed_transpiler=seed_transpiler)
+
+        with mock.patch('qiskit.transpile', side_effect=fake_transpile):
+            t_count = _count_t_gates(qc)
+
+        self.assertEqual(chamadas, [1, 0],
+            "Deve tentar nivel 1 primeiro, e cair pro nivel 0 apos o erro")
+        self.assertEqual(t_count, 1)
+
+    def test_so_usa_nivel_2_como_ultimo_recurso(self):
+        from unittest import mock
+        from qiskit.transpiler.exceptions import TranspilerError
+        from autoq_qec.qec_estimator import _count_t_gates
+
+        qc = QuantumCircuit(1)
+        qc.t(0)
+        real_transpile = __import__('qiskit').transpile
+
+        chamadas = []
+        def fake_transpile(circuit, basis_gates, optimization_level, seed_transpiler):
+            chamadas.append(optimization_level)
+            if optimization_level in (1, 0):
+                raise TranspilerError("Maximum iteration reached. max_iteration=1000")
+            return real_transpile(circuit, basis_gates=basis_gates,
+                                   optimization_level=optimization_level,
+                                   seed_transpiler=seed_transpiler)
+
+        with mock.patch('qiskit.transpile', side_effect=fake_transpile):
+            t_count = _count_t_gates(qc)
+
+        self.assertEqual(chamadas, [1, 0, 2],
+            "So deve chegar no nivel 2 se 1 e 0 falharem")
+        self.assertEqual(t_count, 1)
+
+    def test_propaga_erro_se_todos_os_niveis_falharem(self):
+        from unittest import mock
+        from qiskit.transpiler.exceptions import TranspilerError
+        from autoq_qec.qec_estimator import _count_t_gates
+
+        qc = QuantumCircuit(1)
+        qc.t(0)
+
+        with mock.patch('qiskit.transpile',
+                         side_effect=TranspilerError("Maximum iteration reached. max_iteration=1000")):
+            with self.assertRaises(TranspilerError):
+                _count_t_gates(qc)
+
+
 class TestEstimate(unittest.TestCase):
 
     def test_nisq_acima_threshold_inviavel(self):
