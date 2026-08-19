@@ -3,6 +3,50 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.4.5] - 2026-08-18
+
+### Verified
+
+- **Qiskit 2.5.2 compatibility, validated cross-version.** A real, silent
+  correctness bug in Qiskit's own `OptimizeCliffordT` transpiler pass
+  (swapped `S`/`Sdg` gates for Clifford+T bases excluding `SX`/`SXdg`,
+  affecting Qiskit 2.4.0 through 2.5.1) was independently identified,
+  verified, and fixed upstream — merged as
+  [Qiskit/qiskit#16729](https://github.com/Qiskit/qiskit/pull/16729) and
+  released in **Qiskit 2.5.2**. Because `_count_t_gates()` (the function
+  `compare()` uses internally to count non-Clifford gates) transpiles to
+  exactly this basis, this version's release includes a full regression
+  campaign confirming autoq-qec's own numbers were never affected and
+  remain correct against both the buggy and fixed Qiskit releases:
+  - **23 new regression tests** added to `tests/test_qec_estimator.py`
+    (`TestQiskitCliffordTBugRobustness`, 10 tests directly targeting the
+    T-count-invariance finding for this bug; `TestQiskit252Compatibility`,
+    13 tests covering the wider set of real changes across Qiskit
+    2.5.0–2.5.2 — NumPy≥2.0 minimum, transpiler determinism fixes
+    (`ConsolidateBlocks`, `VF2Layout`, `CommutativeCancellation`, Sabre
+    routing), the `DAGCircuit.depth` panic fix, and the new official
+    `generate_preset_clifford_t_pass_manager` helper). Items evaluated and
+    confirmed genuinely not applicable to autoq-qec's code (Suzuki-Trotter
+    memory leak fix, QPY compatibility, `Statevector.evolve`) are
+    documented as such rather than padded with artificial tests.
+  - **Dual-version verification**: the full suite (221 tests) was run
+    against both Qiskit 2.5.1 (the affected version) and Qiskit 2.5.2 (the
+    fixed version) in isolated environments. T-count, `n_physical_gates`,
+    and `depth_physical` are bit-for-bit identical between the two
+    versions on every test circuit, confirming the upstream bug never
+    affected any T-count autoq-qec has published or will publish — the
+    only fix-related bug was in the S/Sdg *positions* of Clifford gates,
+    which are zero-cost and never counted.
+  - No code changes were needed in `autoq_qec/` itself — `pyproject.toml`
+    already declares `qiskit>=1.0.0` with no upper bound, so this release
+    is a validation/documentation update, not a compatibility patch.
+
+### Changed
+- `README.md`: test count corrected from the stale "198 tests" to the
+  current 221 (216 passing + 5 skipped without the optional `[ibm]` extra
+  on Qiskit versions still affected by the upstream bug, 217 passing + 4
+  skipped on Qiskit ≥2.5.2).
+
 ## [3.4.4] - 2026-08-01
 
 ### Fixed

@@ -7,6 +7,8 @@
 
 Given any Qiskit circuit and a set of hardware profiles, AutoQ QEC returns a ranked comparison of QEC codes (Surface Code, Floquet Code, Bacon-Shor, Steane [[7,1,3]]) with physically grounded resource estimates: physical qubit count, execution time, and circuit fidelity.
 
+*Using an AI coding assistant with this package? See [AGENTS.md](AGENTS.md) for exact API signatures and field names — several are easy to guess wrong (e.g. `Recommendation.code` vs `CodeResult.code_name`).*
+
 ## How this compares
 
 | Tool | Multi-code | Arbitrary circuit | Analytic model | Qiskit-native |
@@ -346,7 +348,7 @@ plot_tradeoff(result, output="tradeoff.png")  # log-log qubits × time, color = 
 ## Test
 
 ```bash
-pytest tests/ -v   # 198 tests, all verify physics not arithmetic
+pytest tests/ -v   # 221 tests, all verify physics not arithmetic
 ```
 
 `TestIBMLiveCalibration` (4 tests) mocks the `qiskit-ibm-runtime` API via
@@ -354,9 +356,25 @@ pytest tests/ -v   # 198 tests, all verify physics not arithmetic
 `mock.patch` still needs the *target module* to exist to patch it, so these 4
 tests need the optional `[ibm]` extra installed (`pip install
 "autoq-qec[ibm]"`) even though nothing real is called. Without it, they're
-skipped automatically instead of failing: expect `190 passed, 4 skipped`
+skipped automatically instead of failing: expect `217 passed, 4 skipped` on
+Qiskit ≥2.5.2, or `216 passed, 5 skipped` on Qiskit 2.4.0–2.5.1 (one
+version-aware test — see "Qiskit compatibility" below — skips instead of
+asserting on those older releases)
 (plus 4 more failures, not skips, if the optional `[viz]` extra —
 `matplotlib` — isn't installed either; see "Visualization" below).
+
+## Qiskit compatibility
+
+Tested and validated against **Qiskit 2.5.1 and 2.5.2** in isolated
+environments — T-count, `n_physical_gates`, and `depth_physical` are
+bit-for-bit identical between the two on every test circuit. Qiskit 2.5.2
+fixes an upstream transpiler bug in `OptimizeCliffordT`
+([Qiskit/qiskit#16729](https://github.com/Qiskit/qiskit/pull/16729)) that
+could silently swap `S`/`Sdg` gates for Clifford+T bases excluding
+`SX`/`SXdg` on Qiskit 2.4.0–2.5.1 — confirmed to never have affected any
+T-count autoq-qec computes or has published, since S/Sdg are zero-cost
+Clifford gates never included in a T-count. No code change was needed in
+`autoq_qec/` for this — `qiskit>=1.0.0` already covers both versions.
 
 ## What the tests check (unlike most QEC tools)
 
