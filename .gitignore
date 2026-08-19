@@ -7,3 +7,11 @@ build/
 .pytest_cache/
 *.qasm
 .DS_Store
+
+# scripts pessoais de teste (nunca fizeram parte do pacote)
+teste_pessoal_vscode.py
+testeautoqgem*.py
+tabela_c_vqe_ghz.py
+pqse_*.py
+teste_pqse_*.py
+pqse_ibm_resultado.png
