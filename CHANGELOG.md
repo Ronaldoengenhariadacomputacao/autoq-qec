@@ -3,6 +3,34 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.4.6] - 2026-09-26
+
+### Changed
+
+- `pyproject.toml`: capped the Qiskit dependency at
+  `"qiskit>=1.0.0,<3"` (was `">=1.0.0"`, no upper bound). Requested by
+  the Qiskit Ecosystem's own weekly compatibility check, opened as
+  [issue #1](https://github.com/Ronaldoengenhariadacomputacao/autoq-qec/issues/1)
+  by maintainer [1ucian0](https://github.com/1ucian0) (the same reviewer
+  who merged this project's Ecosystem admission PR #1236): an unbounded
+  major-version range risks a silent break if/when Qiskit ships a
+  backwards-incompatible 3.0, since Qiskit follows semantic versioning
+  and major bumps are explicitly allowed to break API. Pure dependency
+  metadata — no code or behavior change.
+
+  Checked whether this interacts with the real `OptimizeCliffordT`
+  unitarity bug already documented above (v3.4.5, PR #16729, present in
+  Qiskit 2.4.0-2.5.1): the only production code path that transpiles to
+  a Clifford+T basis is `_count_t_gates()`
+  (`autoq_qec/qec_estimator.py`), which only reads the resulting
+  T/Tdg gate count and never reuses the transpiled circuit itself. The
+  bug swaps which Clifford correction (`S` vs `Sdg`) gets emitted —
+  it changes the circuit's unitary, not its T-gate count — so this
+  function's actual output is unaffected even when run against an
+  affected Qiskit version. No lower-bound change was needed for this
+  reason; the cap requested by the issue (upper bound only) is
+  sufficient.
+
 ## [3.4.5] - 2026-08-18
 
 ### Verified
