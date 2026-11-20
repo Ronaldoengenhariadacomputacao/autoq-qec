@@ -3,16 +3,14 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [3.4.7] - Unreleased
+## [3.4.7] - 2026-11-20
 
-> Renumbered from a draft `[3.4.6]` entry: this work was already
-> committed-but-unpushed in the working tree when the isolated `v3.4.6`
-> release (Qiskit dependency cap, Ecosystem issue #1) needed to ship
-> first and independently. Content below is unchanged from the draft —
-> only the version number and this note are new. Not yet released;
-> revisit before publishing (tests/lint/mypy/coverage should be re-run
-> against the real `v3.4.6` base, not just the pre-3.4.6 tree it was
-> originally verified against).
+> Maintenance release, no runtime behavior change. Renumbered from a draft
+> `[3.4.6]` entry: this work was already in the working tree when the
+> isolated `v3.4.6` release (Qiskit dependency cap, Ecosystem issue #1)
+> needed to ship first. Re-verified on the real `v3.4.6` base on
+> 2026-11-20: `ruff` and `mypy` clean, coverage 84%, 217 passed / 4 skipped
+> on Qiskit 2.6.2 and 2.5.2 (216 / 5 on 2.5.1).
 
 ### Added
 - `autoq_qec/py.typed` (PEP 561 marker), so `mypy`/`pyright` in a downstream
