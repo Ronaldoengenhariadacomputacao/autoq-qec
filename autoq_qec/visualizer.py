@@ -2,6 +2,10 @@
 AutoQ QEC — visualização de trade-offs qubits × tempo × fidelidade.
 Dependência opcional: matplotlib (pip install "autoq-qec[viz]").
 """
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
 
 _MARKERS = {
     "Surface Code": "o",
@@ -11,7 +15,9 @@ _MARKERS = {
 }
 
 
-def plot_tradeoff(compare_result: dict, output: str = None, ax=None):
+def plot_tradeoff(
+    compare_result: dict, output: Optional[str] = None, ax: "Optional[Axes]" = None
+) -> "Axes":
     """
     Gráfico log-log de qubits físicos × tempo de execução para todas as
     combinações viáveis hardware+código de um compare(). Cor = fidelidade
@@ -22,10 +28,10 @@ def plot_tradeoff(compare_result: dict, output: str = None, ax=None):
       cria uma figura nova e a exibe (a menos que `output` seja passado).
     """
     try:
-        import matplotlib.pyplot as plt
         import matplotlib.colors as mcolors
+        import matplotlib.pyplot as plt
     except ImportError:
-        raise ImportError('pip install matplotlib (ou: pip install "autoq-qec[viz]")')
+        raise ImportError('pip install matplotlib (ou: pip install "autoq-qec[viz]")') from None
 
     points = [
         (hw_name, r)
@@ -38,12 +44,17 @@ def plot_tradeoff(compare_result: dict, output: str = None, ax=None):
 
     fids = [r.fidelity_circuit for _, r in points]
     f_min, f_max = min(fids), max(fids)
-    norm = mcolors.Normalize(vmin=f_min, vmax=f_max) if f_min != f_max else mcolors.Normalize(vmin=f_min - 1e-9, vmax=f_max + 1e-9)
+    norm = (
+        mcolors.Normalize(vmin=f_min, vmax=f_max)
+        if f_min != f_max
+        else mcolors.Normalize(vmin=f_min - 1e-9, vmax=f_max + 1e-9)
+    )
     cmap = plt.get_cmap("RdYlGn")
 
     created_fig = ax is None
     if created_fig:
         fig, ax = plt.subplots(figsize=(8, 6))
+    assert ax is not None  # sempre verdadeiro aqui (passado ou criado acima)
 
     for hw_name, r in points:
         marker = _MARKERS.get(r.code_name, "x")

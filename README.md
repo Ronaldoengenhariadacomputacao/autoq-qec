@@ -26,6 +26,8 @@ pip install autoq-qec
 pip install "autoq-qec[ibm,sim]"
 ```
 
+Ships a `py.typed` marker (PEP 561) — if you run `mypy`/`pyright` on your own project, this package's type annotations are checked, not silently treated as untyped.
+
 ## Quickstart
 
 ```python
@@ -292,9 +294,11 @@ result = compare(circuit, hardwares, fidelity_target=0.99, model_magic_state_dis
 
 The T-factory cost model (`autoq_qec/distillation.py`) implements the multi-round 15-to-1 distillation formulas from Beverland, Kliuchnikov, Schoute et al., "Assessing requirements to scale to practical quantum advantage", arXiv:2211.07629 (Appendix C, Table VI; Appendix E, Eqs. C1–C4, E4–E6) — validated against the paper's own worked examples (Table VII) as regression tests (`tests/test_distillation.py`), reproducing their exact numbers (qubits, time, output error) for both a 1-round and a 2-round factory. Two simplifications versus the paper, documented in the module docstring: the per-round factory search is greedy (cheapest distance meeting the round's error target) rather than a global optimum over a full factory catalog, and the physical T-state input error defaults to the hardware's Clifford error rate `p_phys` unless you pass `HardwareProfile.p_t_state` — a separate value for the physical T-gate error, relevant when it differs from the Clifford/measurement error rate (the paper's own motivating case is Majorana qubits — see "Majorana / topological qubits" below). Default is `False` — existing code is unaffected.
 
+**Note**: this module's internal Surface Code patch model (`A=0.03, p_th=0.01`, Beverland et al. Table V — the cost of the T-factory's own syndrome extraction) uses a different logical-error-rate constant than the top-level code comparison's `_surface_code_model` (`A=0.1, p_th=0.01`, Fowler et al., in "Physical models" below). Both are correct for their own purpose — a T-factory patch and a full logical qubit are different physical objects — but they're easy to conflate since both are labeled "Surface Code".
+
 Both the public entry point (`magic_state_resources()`) and the lower-level `build_magic_state_factory()` it calls (also usable directly) validate their inputs: a negative T-gate count, an error target outside `(0, 1)` (not a valid probability), a negative `data_circuit_time_us`, or a `p_t_state` outside `(0, 1)` all raise `ValueError` — previously some of these were accepted silently and produced normal-looking but physically meaningless results (e.g. a negative T-gate count producing a negative qubit total).
 
-**Fidelity formula**: `fidelity_circuit = (1 - p_L)^n_gates × (1 - readout_error)^n_logical_qubits × exp(-execution_time_us / T2_us)`. `readout_error` and `T2_us` are optional fields on `HardwareProfile` (default `0.0` / `None`, preserving the old formula if omitted).
+**Fidelity formula**: `fidelity_circuit = (1 - p_L)^n_gates × (1 - readout_error)^n_logical_qubits × exp(-execution_time_us / T2_us)`. `readout_error` and `T2_us` are optional fields on `HardwareProfile` (default `0.0` / `None`, preserving the old formula if omitted). Here `n_gates` is `CircuitProfile.n_physical_gates` (the physical gate count *before* the QEC code's overhead is applied) — not `CodeResult.total_physical_gates` (the QEC-expanded count); `p_L_target` is defined per this same pre-overhead count, so the exponent and the target stay consistent with each other.
 
 **Known limitation: mid-circuit measurement error is not modeled separately.** `readout_error` represents end-of-circuit measurement error only. Real hardware (including Quantinuum's own datasheet, cited above) reports a distinct, usually different "mid-circuit measurement and reset cross-talk error" for measurements that happen mid-circuit — common in real fault-tolerant protocols using dynamic circuits (measurement + conditional reset). This package does not currently distinguish between the two — any measurement in your circuit, wherever it occurs, is treated as if it happens at the end. If your circuit relies heavily on mid-circuit measurement, treat `readout_error`'s contribution to `fidelity_circuit` as an approximation, not a precise model of that specific error source.
 
@@ -362,6 +366,13 @@ version-aware test — see "Qiskit compatibility" below — skips instead of
 asserting on those older releases)
 (plus 4 more failures, not skips, if the optional `[viz]` extra —
 `matplotlib` — isn't installed either; see "Visualization" below).
+
+CI also gates on `ruff` (lint) and `mypy` (type-check) — both required to
+pass with zero errors, not just report-only — plus a minimum test-coverage
+floor (`pytest-cov`, currently 80%; real measured coverage is 84–90%
+depending on whether the optional `[ibm]` extra is installed, since the
+live-IBM-API code paths in `real_hardware.py` structurally can't be
+exercised without a real account).
 
 ## Qiskit compatibility
 

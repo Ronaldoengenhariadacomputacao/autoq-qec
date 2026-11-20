@@ -6,8 +6,11 @@ t_gate=50ns, t_meas=100ns, p_phys=1e-4.
 import unittest
 
 from autoq_qec.distillation import (
-    build_magic_state_factory, magic_state_resources,
-    _logical_error_rate, _n_tile, _tau_tile_us, _round_output_error,
+    _logical_error_rate,
+    _n_tile,
+    _tau_tile_us,
+    build_magic_state_factory,
+    magic_state_resources,
 )
 
 T_GATE_NS = 50.0
@@ -157,7 +160,7 @@ class TestEstimateIntegration(unittest.TestCase):
         return qc
 
     def test_flag_desligada_preserva_comportamento_antigo(self):
-        from autoq_qec.qec_estimator import extract_circuit_profile, estimate, HardwareProfile
+        from autoq_qec.qec_estimator import HardwareProfile, estimate, extract_circuit_profile
         qc = self._circuit_com_t_gates()
         prof = extract_circuit_profile(qc)
         self.assertGreater(prof.t_count, 0, "circuito precisa ter T-gates reais pra esse teste valer algo")
@@ -168,7 +171,7 @@ class TestEstimateIntegration(unittest.TestCase):
         self.assertIsNone(r.magic_state_factories)
 
     def test_flag_ligada_adiciona_qubits_de_fabrica(self):
-        from autoq_qec.qec_estimator import extract_circuit_profile, estimate, HardwareProfile
+        from autoq_qec.qec_estimator import HardwareProfile, estimate, extract_circuit_profile
         qc = self._circuit_com_t_gates()
         prof = extract_circuit_profile(qc)
         hw = HardwareProfile("test", t_gate_ns=50, p_phys=0.0001, topology="grid", t_meas_ns=100)
@@ -187,7 +190,8 @@ class TestEstimateIntegration(unittest.TestCase):
     def test_circuito_sem_t_gates_nao_adiciona_fabrica(self):
         """Circuito 100% Clifford: t_count=0, não deve tentar construir fábrica."""
         from qiskit import QuantumCircuit
-        from autoq_qec.qec_estimator import extract_circuit_profile, estimate, HardwareProfile
+
+        from autoq_qec.qec_estimator import HardwareProfile, estimate, extract_circuit_profile
         qc = QuantumCircuit(2); qc.h(0); qc.cx(0, 1)
         prof = extract_circuit_profile(qc)
         self.assertEqual(prof.t_count, 0)
@@ -204,7 +208,7 @@ class TestEstimateIntegration(unittest.TestCase):
         penalidade de fidelidade não refletia isso). Testa que a correção
         se mantém: quando a fábrica alonga o tempo, a fidelidade cai.
         """
-        from autoq_qec.qec_estimator import extract_circuit_profile, estimate, HardwareProfile
+        from autoq_qec.qec_estimator import HardwareProfile, estimate, extract_circuit_profile
         qc = self._circuit_com_t_gates()
         prof = extract_circuit_profile(qc)
         hw = HardwareProfile("test", t_gate_ns=50, p_phys=0.0001, topology="grid",

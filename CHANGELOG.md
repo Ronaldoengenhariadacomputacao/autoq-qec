@@ -3,6 +3,113 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.4.7] - Unreleased
+
+> Renumbered from a draft `[3.4.6]` entry: this work was already
+> committed-but-unpushed in the working tree when the isolated `v3.4.6`
+> release (Qiskit dependency cap, Ecosystem issue #1) needed to ship
+> first and independently. Content below is unchanged from the draft —
+> only the version number and this note are new. Not yet released;
+> revisit before publishing (tests/lint/mypy/coverage should be re-run
+> against the real `v3.4.6` base, not just the pre-3.4.6 tree it was
+> originally verified against).
+
+### Added
+- `autoq_qec/py.typed` (PEP 561 marker), so `mypy`/`pyright` in a downstream
+  project actually check this package's inline type annotations instead of
+  silently treating it as untyped. Verified end-to-end: built the wheel,
+  installed it into a clean venv, and confirmed `mypy` flags a deliberate
+  type error in a 3-line consumer script that misuses `compare()`.
+- New "API stability policy" section in `AGENTS.md`: what's guaranteed
+  stable (everything in `autoq_qec.__all__`, semver-committed), what's
+  explicitly unstable (anything not re-exported at the top level, e.g.
+  `autoq_qec.sensitivity` — which has already shipped and been withdrawn
+  once, the concrete precedent for this category, not a hypothetical), and
+  what's internal with no guarantee at all (anything prefixed `_`).
+- CI now gates on `ruff` (lint) and `mypy` (type-check) — both required to
+  pass with zero errors — and on a minimum test-coverage floor
+  (`pytest-cov`, `--cov-fail-under=80`; real measured coverage is 84% (no
+  `[ibm]` extra) / 90% (with it) — the remaining gap is almost entirely
+  `real_hardware.py`'s live-IBM-API functions, which structurally can't be
+  exercised without a real account, not a testing gap to close).
+- CI matrix now also crosses Qiskit version (`2.5.1`, `2.5.2`, `2.6.2`) against the
+  existing Python version matrix (3.10/3.11/3.12), `fail-fast: false` —
+  automates in CI the dual-version verification done by hand for 3.4.5.
+
+### Fixed
+- 12 real static-typing bugs found by turning on `mypy` for the first time
+  (harmless at runtime — Python never enforced these annotations — but
+  wrong under any type checker, and PEP 561 now means downstream checkers
+  actually see them): `plot_tradeoff()`, `rank()`, `rank_by_metric()`, and
+  `CalibratedHardware.t1_constraint()`/`from_ibm_backend()`/
+  `noise_model_from_ibm()` had parameters typed as `str = None` /
+  `dict = None` / `float = None` instead of `Optional[...] = None`;
+  `CalibratedHardware.T2_us` was typed as required `float` even though
+  `None` is documented, intentional behavior (see the Majorana entry in
+  "Hardware profiles") — corrected to `Optional[float]`; `compare()`'s
+  return dict, `_duration_ns()`, `_logical_error_rate()`, `_count_t_gates()`,
+  and `_construir_recomendacoes()` all had missing or too-loose return
+  types; `rank()`'s bottleneck calculation used `max(dict, key=dict.get)`,
+  which mypy can't resolve against `dict.get`'s overloads — replaced with
+  an explicit lambda.
+- 267 of 275 initial `ruff` violations resolved (safe autofix: import
+  sorting, unused imports; manual: 3× `raise ... from None` for intentional
+  exception replacement, 1× `zip(..., strict=True)`, line-length wraps).
+  The remaining 2 are documented `# noqa: F841` (a `next()` call kept for
+  its implicit feasibility-precondition side effect, not for its unused
+  return value) — both left as-is because the underlying test logic
+  wasn't touched, and both are annotated with why.
+- Removed the CI "Check no placeholder tests" step: it opened a test file
+  into a string but never actually parsed or analyzed it with `ast`,
+  unconditionally printing success regardless of content. A non-functional
+  check that always looks green is worse than no check.
+- README.md: clarified that the fidelity formula's `n_gates` is
+  `CircuitProfile.n_physical_gates` (pre-QEC-overhead), not
+  `CodeResult.total_physical_gates`; noted that `distillation.py`'s
+  internal Surface Code patch model uses a different logical-error-rate
+  constant (`A=0.03`, Beverland et al. Table V) than the top-level
+  `_surface_code_model` (`A=0.1`, Fowler et al.) — both correct for their
+  own purpose, easy to conflate since both are labeled "Surface Code".
+- AGENTS.md referenced a "Known gaps" section that didn't exist (the
+  actual section was "Known pitfalls"); repointed to the new "API
+  stability policy" section, the more accurate home for that note.
+
+### Changed
+- 4 tests in `tests/test_qec_estimator.py` now use `real_amplitudes()`,
+  `qaoa_ansatz()` and `QFTGate` instead of the `RealAmplitudes`, `QAOAAnsatz`
+  (an `NLocal` subclass) and `QFT` classes, which Qiskit deprecated in 2.1 and
+  will remove in 3.0. Test-only change: no package code used them. The suite
+  now passes with `-W error::DeprecationWarning` on Qiskit 2.5.1, 2.5.2 and
+  2.6.2 (the published 3.4.6 already passed on 2.6.0, 2.6.1 and 2.6.2 in the
+  normal mode). The new functions need Qiskit >= 2.1, so running the *test
+  suite* (not the package) on Qiskit 1.x is no longer supported.
+- `pyproject.toml` classifier: `Development Status :: 3 - Alpha` →
+  `4 - Beta` — matches the package's actual state (3.4.x, 221 tests,
+  zero lint/type-check errors, published on PyPI for months) more
+  honestly than "Alpha" did. This is a descriptive label only — it does
+  not restrict future development, freeze the API, or require any process
+  change; see "API stability policy" in AGENTS.md for what's actually
+  guaranteed.
+
+### Verified
+- Every equation/formula stated in README.md (Surface/Floquet/Bacon-Shor/
+  Steane models, the fidelity formula, the Bloch `T2<=2*T1` relation, the
+  `0.5×T1` viability filter, the magic-state distillation formulas) was
+  independently checked against the actual implementation — zero
+  divergences found.
+- Every table in README.md and AGENTS.md (tool comparison, `rank()` weight
+  presets, hardware-profile list, public API map, dataclass field names)
+  was independently checked against the current code — zero stale or
+  incorrect entries found. The `rank_by_metric()` worked example
+  (README.md, QFT on 6 qubits) was re-run from scratch and its numbers
+  confirmed to still match exactly.
+- The full regression suite (216 passed/5 skipped on Qiskit 2.5.1, 221
+  passed/0 skipped on Qiskit 2.5.2) and the 13 runnable README code
+  examples were compared byte-for-byte between this release and the
+  unmodified 3.4.5 tree (via a `git worktree`) in both Qiskit environments
+  — identical output in all 4 combinations, confirming none of this
+  release's typing/lint/config changes altered any runtime behavior.
+
 ## [3.4.6] - 2026-09-26
 
 ### Changed

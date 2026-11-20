@@ -2,14 +2,21 @@
 Testes reais do QEC Estimator — verificam física, não só aritmética.
 Cada teste falha se o modelo produzir resultado fisicamente incorreto.
 """
-import math, unittest
+import math
+import unittest
+
+from qiskit import QuantumCircuit
 
 from autoq_qec.qec_estimator import (
-    _surface_code_model, _bacon_shor_model, _steane_model,
-    extract_circuit_profile, estimate, compare,
-    HardwareProfile, CircuitProfile
+    CircuitProfile,
+    HardwareProfile,
+    _bacon_shor_model,
+    _steane_model,
+    _surface_code_model,
+    compare,
+    estimate,
+    extract_circuit_profile,
 )
-from qiskit import QuantumCircuit
 
 IBM   = HardwareProfile("IBM",        t_gate_ns=50,    p_phys=0.001, topology="heavy-hex")
 ION   = HardwareProfile("IonQ",       t_gate_ns=200e3, p_phys=0.0005,topology="all-to-all")
@@ -149,6 +156,7 @@ class TestCountTGatesFallback(unittest.TestCase):
 
     def test_tenta_nivel_1_primeiro_e_nao_precisa_de_fallback_no_caso_normal(self):
         from unittest import mock
+
         from autoq_qec.qec_estimator import _count_t_gates
 
         qc = QuantumCircuit(1)
@@ -171,7 +179,9 @@ class TestCountTGatesFallback(unittest.TestCase):
 
     def test_cai_para_nivel_0_quando_nivel_1_estoura_iteracoes(self):
         from unittest import mock
+
         from qiskit.transpiler.exceptions import TranspilerError
+
         from autoq_qec.qec_estimator import _count_t_gates
 
         qc = QuantumCircuit(1)
@@ -196,7 +206,9 @@ class TestCountTGatesFallback(unittest.TestCase):
 
     def test_so_usa_nivel_2_como_ultimo_recurso(self):
         from unittest import mock
+
         from qiskit.transpiler.exceptions import TranspilerError
+
         from autoq_qec.qec_estimator import _count_t_gates
 
         qc = QuantumCircuit(1)
@@ -221,7 +233,9 @@ class TestCountTGatesFallback(unittest.TestCase):
 
     def test_propaga_erro_se_todos_os_niveis_falharem(self):
         from unittest import mock
+
         from qiskit.transpiler.exceptions import TranspilerError
+
         from autoq_qec.qec_estimator import _count_t_gates
 
         qc = QuantumCircuit(1)
@@ -321,6 +335,7 @@ class TestQiskitCliffordTBugRobustness(unittest.TestCase):
         # que _count_t_gates() em si (que tenta 1 antes de 0) reporte um
         # valor estavel.
         from qiskit import transpile as qk_transpile
+
         from autoq_qec.qec_estimator import _count_t_gates
         qc = QuantumCircuit(2)
         qc.h(0); qc.cx(0, 1); qc.t(0); qc.t(1); qc.x(0); qc.rz(0.3, 0)
@@ -390,9 +405,10 @@ class TestQiskitCliffordTBugRobustness(unittest.TestCase):
         # nao falha o teste dependendo da versao instalada -- so documenta
         # e confirma que o T-count continua correto em qualquer uma delas
         t = self._t_count_circuito_2q_rz()
+        bug_status = "com bug conhecido" if versao_atual in versoes_confirmadas_com_bug else "nao confirmada com bug"
         self.assertGreater(t, 0,
             f"T-count deve ser > 0 independente da versao do Qiskit instalada "
-            f"({versao_atual}, {'com bug conhecido' if versao_atual in versoes_confirmadas_com_bug else 'nao confirmada com bug'})")
+            f"({versao_atual}, {bug_status})")
 
 
 class TestQiskit252Compatibility(unittest.TestCase):
@@ -646,25 +662,25 @@ class TestParametrosNaoVinculados(unittest.TestCase):
     """
 
     def test_realamplitudes_nao_vinculado_levanta_valueerror(self):
-        from qiskit.circuit.library import RealAmplitudes
-        circ = RealAmplitudes(4, reps=2).decompose()
+        from qiskit.circuit.library import real_amplitudes
+        circ = real_amplitudes(4, reps=2).decompose()
         self.assertGreater(circ.num_parameters, 0)
         with self.assertRaises(ValueError):
             extract_circuit_profile(circ)
 
     def test_qaoaansatz_nao_vinculado_levanta_valueerror(self):
-        from qiskit.circuit.library import QAOAAnsatz
+        from qiskit.circuit.library import qaoa_ansatz
         from qiskit.quantum_info import SparsePauliOp
         ham = SparsePauliOp.from_list([("ZZII", 1.0), ("IZZI", 1.0)])
-        circ = QAOAAnsatz(ham, reps=1).decompose()
+        circ = qaoa_ansatz(ham, reps=1).decompose()
         self.assertGreater(circ.num_parameters, 0)
         with self.assertRaises(ValueError):
             extract_circuit_profile(circ)
 
     def test_realamplitudes_vinculado_funciona_normalmente(self):
         import numpy as np
-        from qiskit.circuit.library import RealAmplitudes
-        tmpl = RealAmplitudes(4, reps=2).decompose()
+        from qiskit.circuit.library import real_amplitudes
+        tmpl = real_amplitudes(4, reps=2).decompose()
         rng = np.random.default_rng(42)
         circ = tmpl.assign_parameters(rng.uniform(0, 2*np.pi, tmpl.num_parameters))
         self.assertEqual(circ.num_parameters, 0)
@@ -743,9 +759,13 @@ class TestCasosDeLimite(unittest.TestCase):
         falhar por variação normal de velocidade de máquina/CI.
         """
         import time
-        from qiskit.circuit.library import QFT
 
-        qc = QFT(50).decompose()
+        from qiskit import QuantumCircuit
+        from qiskit.circuit.library import QFTGate
+
+        qc = QuantumCircuit(50)
+        qc.append(QFTGate(50), range(50))
+        qc = qc.decompose()
         inicio = time.time()
         prof = extract_circuit_profile(qc)
         duracao = time.time() - inicio

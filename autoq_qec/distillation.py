@@ -66,7 +66,7 @@ class MagicStateFactory:
 
 def _logical_error_rate(p_phys: float, d: int, A: float = 0.03, p_th: float = 0.01) -> float:
     """P_sur(d) = A*(p/p_th)^((d+1)/2) — Tabela V, Surface Code (gate-based)."""
-    return A * (p_phys / p_th) ** ((d + 1) / 2)
+    return float(A * (p_phys / p_th) ** ((d + 1) / 2))
 
 
 def _n_tile(d: int) -> int:

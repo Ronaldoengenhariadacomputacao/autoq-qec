@@ -5,19 +5,24 @@ Floquet Code e Algorithm Estimator.
 import importlib.util
 import math
 import unittest
+from unittest.mock import MagicMock, patch
 
 from qiskit import QuantumCircuit
 
-from autoq_qec.qec_estimator import (
-    extract_circuit_profile, estimate, compare,
-    _surface_code_model, _floquet_code_model, _steane_model, _bacon_shor_model,
-    HardwareProfile,
-)
-from autoq_qec.recommender import rank, rank_by_metric
-from autoq_qec.real_hardware import HARDWARE_PROFILES, CalibratedHardware
 from autoq_qec.algorithm_estimator import AlgorithmEstimator
-from autoq_qec.distillation import magic_state_resources, build_magic_state_factory
-from unittest.mock import patch, MagicMock
+from autoq_qec.distillation import build_magic_state_factory, magic_state_resources
+from autoq_qec.qec_estimator import (
+    HardwareProfile,
+    _bacon_shor_model,
+    _floquet_code_model,
+    _steane_model,
+    _surface_code_model,
+    compare,
+    estimate,
+    extract_circuit_profile,
+)
+from autoq_qec.real_hardware import HARDWARE_PROFILES, CalibratedHardware
+from autoq_qec.recommender import rank, rank_by_metric
 
 _HAS_QISKIT_IBM_RUNTIME = importlib.util.find_spec("qiskit_ibm_runtime") is not None
 
@@ -510,8 +515,10 @@ class TestFeatureMajorana(unittest.TestCase):
 class TestFeature8Visualizer(unittest.TestCase):
 
     def test_plot_gera_arquivo_png(self):
+        import os
+        import tempfile
+
         from autoq_qec.visualizer import plot_tradeoff
-        import tempfile, os
         qc = QuantumCircuit(2); qc.h(0); qc.cx(0, 1)
         hw = [HardwareProfile("IBM", 391, 0.001, "heavy-hex"),
               HardwareProfile("H2", 1e5, 0.0015, "all-to-all")]
@@ -537,6 +544,7 @@ class TestFeature8Visualizer(unittest.TestCase):
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+
         from autoq_qec.visualizer import plot_tradeoff
         qc = QuantumCircuit(2); qc.h(0); qc.cx(0, 1)
         hw = [HardwareProfile("IBM", 391, 0.001, "heavy-hex")]
@@ -552,6 +560,7 @@ class TestFeature8Visualizer(unittest.TestCase):
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+
         from autoq_qec.visualizer import plot_tradeoff
         qc = QuantumCircuit(2); qc.h(0); qc.cx(0, 1)
         hw = [HardwareProfile("IBM", 391, 0.001, "heavy-hex")]
@@ -716,9 +725,11 @@ class TestReadoutErrorFidelity(unittest.TestCase):
         qc_grande = QuantumCircuit(6)
         for i in range(6): qc_grande.h(i)
         for i in range(5): qc_grande.cx(i, i + 1)
-        r_pequeno = next(r for r in estimate(extract_circuit_profile(qc_pequeno), hw, 0.99)
+        # next() aqui e' uma pre-condicao (Surface Code precisa ser viavel nos
+        # dois circuitos p/ o teste fazer sentido) -- valor nao usado de proposito.
+        r_pequeno = next(r for r in estimate(extract_circuit_profile(qc_pequeno), hw, 0.99)  # noqa: F841
                           if r.code_name == "Surface Code" and r.feasible)
-        r_grande = next(r for r in estimate(extract_circuit_profile(qc_grande), hw, 0.99)
+        r_grande = next(r for r in estimate(extract_circuit_profile(qc_grande), hw, 0.99)  # noqa: F841
                          if r.code_name == "Surface Code" and r.feasible)
         readout_term_pequeno = (1 - hw.readout_error) ** 2
         readout_term_grande = (1 - hw.readout_error) ** 6
@@ -884,7 +895,7 @@ class TestInvarianteDestilacao(unittest.TestCase):
         sem = compare(qc, [hw], fidelity_target=0.99, model_magic_state_distillation=False)
         com = compare(qc, [hw], fidelity_target=0.99, model_magic_state_distillation=True)
 
-        for r_sem, r_com in zip(sem["results"]["Teste"], com["results"]["Teste"]):
+        for r_sem, r_com in zip(sem["results"]["Teste"], com["results"]["Teste"], strict=True):
             if not r_sem.feasible or not r_com.feasible:
                 continue
             self.assertGreaterEqual(r_com.total_physical_qubits, r_sem.total_physical_qubits,

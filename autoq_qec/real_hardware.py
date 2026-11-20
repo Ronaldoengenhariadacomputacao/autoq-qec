@@ -6,8 +6,9 @@ Três modos de operação:
   3. Publicado  — dados de papers/specs para fabricantes sem API aberta
 """
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
+
 
 @dataclass
 class CalibratedHardware:
@@ -20,7 +21,9 @@ class CalibratedHardware:
     t_1q_ns: float          # duração porta 1q em ns
     t_2q_ns: float          # duração porta 2q em ns
     T1_us: float            # tempo de relaxação médio
-    T2_us: float            # tempo de decoerência médio
+    T2_us: Optional[float]  # tempo de decoerência médio -- None quando nao ha
+                            # dado publico reportado (ver Majorana_MS_..., README
+                            # "Majorana / topological qubits"); nao inventado
     readout_error: float    # erro de leitura médio
     topology: str
     source: str             # referência dos dados
@@ -82,7 +85,7 @@ class CalibratedHardware:
         return self.p_2q_mean
 
     def t1_constraint(self, n_physical_gates: int, gate_overhead: float,
-                       execution_time_us: float = None) -> dict:
+                       execution_time_us: Optional[float] = None) -> dict:
         """
         Verifica se o circuito QEC cabe dentro do T1.
         Por padrão recalcula o tempo a partir de n_physical_gates×gate_overhead
@@ -282,7 +285,7 @@ HARDWARE_PROFILES = {
 
 # ── Integração IBM real (requer token) ────────────────────────────────────────
 
-def from_ibm_backend(backend_name: str, token: str, instance: str = None) -> CalibratedHardware:
+def from_ibm_backend(backend_name: str, token: str, instance: Optional[str] = None) -> CalibratedHardware:
     """
     Puxa calibração real do IBM Quantum via qiskit-ibm-runtime.
     Requer: pip install qiskit-ibm-runtime
@@ -294,7 +297,7 @@ def from_ibm_backend(backend_name: str, token: str, instance: str = None) -> Cal
     try:
         from qiskit_ibm_runtime import QiskitRuntimeService
     except ImportError:
-        raise ImportError("pip install qiskit-ibm-runtime")
+        raise ImportError("pip install qiskit-ibm-runtime") from None
 
     kwargs = {"token": token}
     if instance:
@@ -309,11 +312,11 @@ def from_ibm_backend(backend_name: str, token: str, instance: str = None) -> Cal
         # param.unit — hoje é 'ns'. Não assumir segundos silenciosamente.
         unit = getattr(param, "unit", "") or "ns"
         if unit == "ns":
-            return param.value
+            return float(param.value)
         if unit == "us":
-            return param.value * 1e3
+            return float(param.value) * 1e3
         if unit in ("s", ""):
-            return param.value * 1e9
+            return float(param.value) * 1e9
         raise ValueError(f"Unidade de duração desconhecida da IBM: {unit!r}")
 
     # Erros/durações de porta — a porta nativa de 2 qubits varia por backend
@@ -380,18 +383,18 @@ def from_ibm_backend(backend_name: str, token: str, instance: str = None) -> Cal
     )
 
 
-def noise_model_from_ibm(backend_name: str, token: str, instance: str = None):
+def noise_model_from_ibm(backend_name: str, token: str, instance: Optional[str] = None):
     """
     Constrói AerSimulator com noise model real do backend IBM.
     Permite simular localmente com ruído realista sem usar shots pagos.
     Requer: pip install qiskit-ibm-runtime qiskit-aer
     """
     try:
-        from qiskit_ibm_runtime import QiskitRuntimeService
-        from qiskit_aer.noise import NoiseModel
         from qiskit_aer import AerSimulator
+        from qiskit_aer.noise import NoiseModel
+        from qiskit_ibm_runtime import QiskitRuntimeService
     except ImportError:
-        raise ImportError("pip install qiskit-ibm-runtime qiskit-aer")
+        raise ImportError("pip install qiskit-ibm-runtime qiskit-aer") from None
 
     kwargs = {"token": token}
     if instance:

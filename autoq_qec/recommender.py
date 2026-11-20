@@ -5,7 +5,9 @@ para um dado circuito e alvo de fidelidade.
 import math
 from dataclasses import dataclass
 from typing import Optional
-from .qec_estimator import CodeResult, CircuitProfile
+
+from .qec_estimator import CircuitProfile
+
 
 @dataclass
 class Recommendation:
@@ -49,7 +51,7 @@ def _find_calibration(hw_name: str, hw_t_gate_ns: float, hw_p_phys: float,
 
 
 def rank(compare_result: dict,
-         hardware_calibrations: dict = None,
+         hardware_calibrations: Optional[dict] = None,
          weight_qubits: float = 0.5,
          weight_time: float = 0.3,
          weight_fidelity: float = 0.2) -> list[Recommendation]:
@@ -160,7 +162,7 @@ def rank(compare_result: dict,
     candidatos_ok = [(hw, r) for hw, r in candidatos if r.meets_fidelity_target]
     candidatos_abaixo = [(hw, r) for hw, r in candidatos if not r.meets_fidelity_target]
 
-    def _construir_recomendacoes(grupo, meets_target):
+    def _construir_recomendacoes(grupo, meets_target) -> list[Recommendation]:
         if not grupo:
             return []
         qubits_vals = [r.total_physical_qubits for _, r in grupo]
@@ -189,7 +191,7 @@ def rank(compare_result: dict,
                 "tempo":     weight_time * t_norm,
                 "fidelidade":weight_fidelity * f_norm,
             }
-            bottleneck_key = max(contributions, key=contributions.get)
+            bottleneck_key = max(contributions, key=lambda k: contributions[k])
             bottleneck_pct = contributions[bottleneck_key] / score * 100 if score > 0 else 0
             bottleneck = f"{bottleneck_key} ({bottleneck_pct:.0f}% do score)"
             if not meets_target:
@@ -230,7 +232,7 @@ def print_report(compare_result: dict, recommendations: list[Recommendation]):
     """Imprime relatório completo."""
     prof = compare_result["circuit_profile"]
     print(f"\n{'═'*72}")
-    print(f"  RELATÓRIO AutoQ QEC Estimator")
+    print("  RELATÓRIO AutoQ QEC Estimator")
     print(f"{'═'*72}")
     print(f"  Circuito: {prof.n_logical_qubits} qubits lógicos | "
           f"{prof.n_physical_gates} portas físicas (CX+U) | "
@@ -258,7 +260,7 @@ def print_report(compare_result: dict, recommendations: list[Recommendation]):
         print(f"  → Gargalo principal: {best.bottleneck}")
 
 
-def rank_by_metric(compare_result: dict, hardware_calibrations: dict = None
+def rank_by_metric(compare_result: dict, hardware_calibrations: Optional[dict] = None
                     ) -> dict[str, list[Recommendation]]:
     """
     Rankeia cada métrica isoladamente (qubits, tempo, fidelidade), sem

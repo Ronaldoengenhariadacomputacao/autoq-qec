@@ -337,10 +337,11 @@ def _count_t_gates(circuit) -> int:
                 seed_transpiler=42
             )
             ops = t_basis.count_ops()
-            return ops.get('t', 0) + ops.get('tdg', 0)
+            return int(ops.get('t', 0) + ops.get('tdg', 0))
         except TranspilerError as e:
             last_error = e
             continue
+    assert last_error is not None  # os 3 níveis só chegam aqui via except acima
     raise last_error
 
 
@@ -747,7 +748,7 @@ def _coupling_map_for_topology(topology: str, n_qubits: int):
 
 def compare(circuit, hardware_list: list[HardwareProfile],
             fidelity_target: float = 0.99,
-            model_magic_state_distillation: bool = False):
+            model_magic_state_distillation: bool = False) -> dict:
     """
     API principal: recebe circuito Qiskit + lista de hardwares, devolve
     {"circuit_profile": CircuitProfile, "results": {hw_name: [CodeResult]},
@@ -815,8 +816,8 @@ def compare(circuit, hardware_list: list[HardwareProfile],
             )
 
     profile = extract_circuit_profile(circuit)
-    output = {"circuit_profile": profile, "results": {}, "hardware_profiles": {},
-              "fidelity_target": fidelity_target}
+    output: dict = {"circuit_profile": profile, "results": {}, "hardware_profiles": {},
+                     "fidelity_target": fidelity_target}
     seen_names: dict[str, int] = {}
     for hw in hardware_list:
         hw_profile = profile
